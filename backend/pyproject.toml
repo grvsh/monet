@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monet-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "redis[hiredis]>=5.2",
+    "arq>=0.26",
+    "pyjwt[crypto]>=2.10",
+    "bcrypt>=4.0",
+    "python-multipart>=0.0.20",
+    "Pillow>=11.1",
+    "pillow-heif>=0.21",
+    "rawpy>=0.23",
+    "numpy>=2.2",
+    "ffmpeg-python>=0.2",
+    "PyExifTool>=0.5",
+    "watchdog>=6.0",
+    "python-magic>=0.4",
+    "aiofiles>=24.1",
+    "slowapi>=0.1.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "anyio>=4.8",
+    "pytest-mock>=3.14",
+    "Faker>=33.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "alembic/*"]

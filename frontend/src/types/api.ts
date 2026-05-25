@@ -1,0 +1,121 @@
+export interface UserResponse {
+  id: string
+  email: string
+  full_name: string | null
+  role: 'admin' | 'viewer'
+  is_active: boolean
+  created_at: string
+  last_login_at: string | null
+}
+
+export interface RootFolderResponse {
+  id: string
+  name: string
+  path: string
+  is_active: boolean
+  created_at: string
+  last_scanned_at: string | null
+  parent_root_id: string | null
+}
+
+export interface FolderResponse {
+  id: string
+  root_folder_id: string
+  parent_id: string | null
+  path: string
+  name: string
+  file_count: number
+  child_folder_count: number
+  indexed_at: string | null
+}
+
+export interface FileResponse {
+  id: string
+  folder_id: string
+  root_folder_id: string
+  filename: string
+  extension: string
+  media_type: 'image' | 'video' | 'audio'
+  mime_type: string
+  is_raw: boolean
+  width: number | null
+  height: number | null
+  duration_sec: number | null
+  taken_at: string | null
+  camera_make: string | null
+  camera_model: string | null
+  has_gps: boolean
+  has_thumbnail: boolean
+  has_preview: boolean
+  size_bytes: number | null
+  thumbnail_url: string
+  preview_url: string
+  lens_model: string | null
+  location: string | null
+  trashed_at: string | null
+  missing_since: string | null
+}
+
+export interface FileDetailResponse extends FileResponse {
+  path: string
+  focal_length_mm: number | null
+  aperture: number | null
+  shutter_speed: string | null
+  iso: number | null
+  gps_lat: number | null
+  gps_lon: number | null
+  gps_alt_m: number | null
+  orientation: number | null
+  indexed_at: string
+  processed_at: string | null
+  metadata: Record<string, unknown> | null
+}
+
+export interface PaginatedFiles {
+  items: FileResponse[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+}
+
+export interface ScanJobResponse {
+  id: string
+  root_folder_id: string | null
+  trigger_type: string
+  status: string
+  folders_found: number
+  folders_scanned: number
+  files_found: number
+  files_new: number
+  files_updated: number
+  files_deleted: number
+  files_skipped: number
+  files_failed: number
+  error_message: string | null
+  started_at: string
+  completed_at: string | null
+}
+
+export interface FsEntry {
+  name: string
+  path: string
+  is_symlink: boolean
+  is_configured: boolean
+}
+
+export interface FsBrowseResponse {
+  path: string
+  parent: string | null
+  entries: FsEntry[]
+  path_is_configured: boolean
+}
+
+export interface RootPrefItem {
+  root_folder_id: string
+  is_visible: boolean
+}
+
+export interface RootPrefsResponse {
+  prefs: RootPrefItem[]
+}

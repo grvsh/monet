@@ -1,0 +1,43 @@
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+coverage_html/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Alembic
+# (keep versions/ in git)
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes (local bind mounts)
+pgdata/
+redisdata/
+monet_cache/
+
+# Test artifacts
+/tmp/monet_test_cache/
+*.log

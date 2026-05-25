@@ -1,0 +1,111 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: monet
+      POSTGRES_USER: monet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Require a password so no other container on the bridge network can
+    # read or write tokens without credentials.
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    user: "1000:1006"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://monet:${POSTGRES_PASSWORD}@db:5432/monet
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MONET_CACHE_DIR: /var/monet/cache
+      MONET_HOST: 0.0.0.0
+      MONET_PORT: "8000"
+    env_file:
+      - .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
+      - /path/to/example-images:/path/to/example-images:ro
+      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    user: "1000:1006"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://monet:${POSTGRES_PASSWORD}@db:5432/monet
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MONET_CACHE_DIR: /var/monet/cache
+    env_file:
+      - .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
+      - /path/to/example-images:/path/to/example-images:ro
+      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
+    command: python -m arq app.workers.worker.WorkerSettings
+
+  asset-worker:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    user: "1000:1006"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://monet:${POSTGRES_PASSWORD}@db:5432/monet
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MONET_CACHE_DIR: /var/monet/cache
+    env_file:
+      - .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
+      - /path/to/example-images:/path/to/example-images:ro
+      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
+    command: python -m arq app.workers.worker.AssetWorkerSettings
+
+volumes:
+  pgdata:
+  redisdata:

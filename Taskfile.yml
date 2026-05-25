@@ -1,0 +1,146 @@
+version: '3'
+
+vars:
+  COMPOSE: docker compose
+  COMPOSE_TEST: docker compose -f docker-compose.test.yml
+
+tasks:
+
+  # ── Dev environment ─────────────────────────────────────────────────────────
+
+  up:
+    desc: Start the full dev stack (db, redis, backend, worker)
+    cmd: "{{.COMPOSE}} up -d"
+
+  down:
+    desc: Stop the dev stack
+    cmd: "{{.COMPOSE}} down"
+
+  logs:
+    desc: Tail backend and worker logs
+    cmd: "{{.COMPOSE}} logs -f backend worker"
+
+  restart:
+    desc: Restart backend and worker containers
+    cmd: "{{.COMPOSE}} restart backend worker"
+
+  # ── Database ─────────────────────────────────────────────────────────────────
+
+  migrate:
+    desc: Run pending Alembic migrations
+    cmd: "{{.COMPOSE}} exec backend alembic upgrade head"
+
+  migrate-down:
+    desc: Roll back one Alembic migration
+    cmd: "{{.COMPOSE}} exec backend alembic downgrade -1"
+
+  migrate-history:
+    desc: Show Alembic migration history
+    cmd: "{{.COMPOSE}} exec backend alembic history --verbose"
+
+  # ── Testing ───────────────────────────────────────────────────────────────────
+
+  test:
+    desc: Run the full test suite in isolated Docker containers
+    cmds:
+      - "{{.COMPOSE_TEST}} up --build --abort-on-container-exit --exit-code-from test_runner"
+      - defer: "{{.COMPOSE_TEST}} down -v"
+
+  test-local:
+    desc: Run tests locally (requires test db/redis on ports 5433/6380)
+    dir: backend
+    env:
+      DATABASE_URL: postgresql+asyncpg://monet_test:monet_test_password@localhost:5433/monet_test
+      REDIS_URL: redis://:monet_test_redis_password@localhost:6380/0
+      MONET_CACHE_DIR: /tmp/monet_test_cache
+      JWT_SECRET_KEY: test_secret_key_not_for_production_use_only_32b
+      MONET_WATCH_ENABLED: "false"
+      MONET_SCAN_ON_STARTUP: "false"
+    cmd: pytest -v --cov=app --cov-report=term-missing -x
+
+  test-infra:
+    desc: Start only the test db and redis (for test-local)
+    cmd: "{{.COMPOSE_TEST}} up -d db_test redis_test"
+
+  test-infra-down:
+    desc: Stop test infrastructure
+    cmd: "{{.COMPOSE_TEST}} down -v"
+
+  # ── Fixtures ──────────────────────────────────────────────────────────────────
+
+  fixtures:
+    desc: Generate synthetic test fixture files (JPEG, MP4, MP3, etc.)
+    cmd: python3 scripts/create_test_fixtures.py
+
+  # ── Shell access ──────────────────────────────────────────────────────────────
+
+  shell:
+    desc: Open a bash shell in the backend container
+    cmd: "{{.COMPOSE}} exec backend bash"
+
+  shell-db:
+    desc: Open a psql session in the db container
+    cmd: "{{.COMPOSE}} exec db psql -U monet monet"
+
+  shell-redis:
+    desc: Open a redis-cli session
+    cmd: "{{.COMPOSE}} exec redis redis-cli -a $REDIS_PASSWORD"
+
+  # ── Frontend ──────────────────────────────────────────────────────────────────
+
+  frontend-install:
+    desc: Install frontend npm dependencies
+    dir: frontend
+    cmd: npm install
+
+  frontend-dev:
+    desc: Start the Vite dev server (proxies /api to localhost:8000)
+    dir: frontend
+    cmd: npm run dev
+
+  frontend-build:
+    desc: Build the frontend for production
+    dir: frontend
+    cmd: npm run build
+
+  frontend-test:
+    desc: Run frontend Vitest suite
+    dir: frontend
+    cmd: npm test
+
+  # ── Code quality ──────────────────────────────────────────────────────────────
+
+  lint:
+    desc: Lint backend and frontend
+    cmds:
+      - task: lint-backend
+      - task: lint-frontend
+
+  lint-backend:
+    desc: Lint backend Python (flake8)
+    dir: backend
+    cmd: python3 -m flake8 app/ --max-line-length=120
+
+  lint-frontend:
+    desc: Lint frontend TypeScript (eslint)
+    dir: frontend
+    cmd: npm run lint
+
+  # ── First-time setup ──────────────────────────────────────────────────────────
+
+  setup:
+    desc: "First-time setup: copy .env, build images, run migrations, create admin"
+    cmds:
+      - cp -n .env.example .env || true
+      - echo "✓ .env created — set JWT_SECRET_KEY and REDIS_PASSWORD before continuing"
+      - "{{.COMPOSE}} pull"
+      - "{{.COMPOSE}} build"
+      - "{{.COMPOSE}} up -d db redis"
+      - echo "Waiting for database..."
+      - "{{.COMPOSE}} run --rm backend sh -c 'until pg_isready -h db -U monet; do sleep 1; done'"
+      - "{{.COMPOSE}} run --rm backend alembic upgrade head"
+      - "{{.COMPOSE}} run --rm backend python scripts/create_admin.py"
+      - "{{.COMPOSE}} up -d"
+      - echo ""
+      - echo "✓ Monet is running at http://localhost:8000"
+      - echo "  Default login admin@monet.local / changeme123"

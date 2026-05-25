@@ -1,0 +1,49 @@
+services:
+  db_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: monet_test
+      POSTGRES_USER: monet_test
+      POSTGRES_PASSWORD: monet_test_password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monet_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data   # Use RAM for speed in tests
+
+  redis_test:
+    image: redis:7-alpine
+    command: redis-server --requirepass monet_test_redis_password
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "monet_test_redis_password", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  test_runner:
+    build:
+      context: ./backend
+      target: development
+    depends_on:
+      db_test:
+        condition: service_healthy
+      redis_test:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://monet_test:monet_test_password@db_test:5432/monet_test
+      REDIS_URL: redis://:monet_test_redis_password@redis_test:6379/0
+      MONET_CACHE_DIR: /tmp/monet_test_cache
+      JWT_SECRET_KEY: test_secret_key_not_for_production_use_only
+      MONET_WATCH_ENABLED: "false"
+      MONET_SCAN_ON_STARTUP: "false"
+    volumes:
+      - ./backend:/app
+      - /tmp/monet_test_cache:/tmp/monet_test_cache
+    command: >
+      pytest -v --cov=app --cov-report=term-missing --cov-report=html:/app/coverage_html -x
