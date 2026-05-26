@@ -36,6 +36,7 @@ services:
     build:
       context: ./frontend
       target: production
+    image: ghcr.io/grvsh/monet-frontend:latest
     restart: unless-stopped
     ports:
       - "80:80"
@@ -46,6 +47,7 @@ services:
     build:
       context: ./backend
       target: production
+    image: ghcr.io/grvsh/monet-backend:latest
     restart: unless-stopped
     user: "1000:1006"
     ports:
@@ -74,6 +76,7 @@ services:
     build:
       context: ./backend
       target: production
+    image: ghcr.io/grvsh/monet-backend:latest
     restart: unless-stopped
     user: "1000:1006"
     depends_on:
@@ -97,6 +100,7 @@ services:
     build:
       context: ./backend
       target: production
+    image: ghcr.io/grvsh/monet-backend:latest
     restart: unless-stopped
     user: "1000:1006"
     depends_on:
