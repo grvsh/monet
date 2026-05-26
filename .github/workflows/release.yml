@@ -9,6 +9,7 @@ env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/monet-backend
   FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/monet-frontend
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ── Gate: tests must pass before anything is published ───────────────────
