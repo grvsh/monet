@@ -16,9 +16,9 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# ── Production stage (static files served by FastAPI) ────────────────────────
-# The built dist/ is copied into the backend image at build time via compose,
-# or served by nginx if added later. This stage is a reference artifact.
-FROM nginx:alpine AS production
+# ── Production stage — nginx serves the built SPA and proxies /api/* ─────────
+FROM nginx:1.27-alpine AS production
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
