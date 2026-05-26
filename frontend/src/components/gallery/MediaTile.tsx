@@ -12,7 +12,7 @@ interface MediaTileProps {
   imageSize: number
   selected: boolean
   anySelected: boolean
-  onSelect: (id: string) => void
+  onSelect: (id: string, shiftKey: boolean) => void
 }
 
 function formatLensShort(lens: string): string {
@@ -72,10 +72,6 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
     : file.camera_model ?? null
   const [showDownload, setShowDownload] = useState(false)
 
-  function handleCheckboxClick(e: React.MouseEvent) {
-    e.stopPropagation()
-    onSelect(file.id)
-  }
 
   return (
     <div
@@ -125,16 +121,21 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
           </div>
         )}
 
-        {/* Checkbox — top-left */}
+        {/* Checkbox — top-left.
+            readOnly suppresses the React controlled-without-onChange warning;
+            all selection logic (including shift-key) is handled via onClick. */}
         <div
           className="absolute top-1.5 left-1.5"
-          onClick={handleCheckboxClick}
+          onClick={(e) => e.stopPropagation()}
         >
           <input
             type="checkbox"
             checked={selected}
-            onChange={() => onSelect(file.id)}
-            onClick={(e) => e.stopPropagation()}
+            readOnly
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelect(file.id, e.shiftKey)
+            }}
             className="w-4 h-4 rounded accent-blue-500 cursor-pointer"
             aria-label={`Select ${file.filename}`}
           />

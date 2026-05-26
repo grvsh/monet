@@ -13,7 +13,7 @@ Self-hosted media management for personal photo and video libraries. Browse, sea
 - **Extracts** EXIF metadata (camera, lens, exposure, GPS) using ExifTool and reverse-geocodes GPS coordinates to a human-readable location
 - **Gallery** — infinite-scroll grid with lightbox, folder tree navigation, per-root visibility preferences
 - **Search** — filter by media type, camera, date range, location, and free-text across filenames and metadata
-- **Trash** — soft-delete with 30-day auto-purge; separates user-deleted files from files externally moved off disk
+- **Trash** — soft-delete with 30-day auto-purge; separates user-deleted files from files externally moved off disk. Moving a file to Trash removes it from Monet's library only — the original file on disk is never touched.
 - **Auth** — JWT-based with role separation (admin / viewer), httpOnly refresh-token cookie
 
 ---

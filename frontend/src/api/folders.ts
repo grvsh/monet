@@ -45,6 +45,17 @@ export async function listFolderFiles(
   return data
 }
 
+export interface FolderTypeCounts {
+  image: number
+  video: number
+  audio: number
+}
+
+export async function getFolderTypeCounts(folderId: string): Promise<FolderTypeCounts> {
+  const { data } = await client.get<FolderTypeCounts>(`/api/folders/${folderId}/type-counts`)
+  return data
+}
+
 export async function listFolderMissingFiles(folderId: string): Promise<FileResponse[]> {
   const { data } = await client.get<FileResponse[]>(`/api/folders/${folderId}/missing-files`)
   return data

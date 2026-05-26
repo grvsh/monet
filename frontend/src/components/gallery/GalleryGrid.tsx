@@ -1,9 +1,10 @@
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listFolderFiles, resolveFolderByPath } from '../../api/folders'
 import { useGalleryStore } from '../../store/gallery'
+import { bulkDeleteFiles } from '../../api/files'
 import type { FileResponse } from '../../types/api'
 import MediaTile from './MediaTile'
 import GalleryToolbar from './GalleryToolbar'
@@ -21,7 +22,6 @@ function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>) {
   const [width, setWidth] = useState(0)
 
   useEffect(() => {
-    // Runs after every render so we catch the first time ref.current becomes non-null.
     if (!ref.current) return
     const el = ref.current
     const observer = new ResizeObserver((entries) => {
@@ -66,27 +66,61 @@ export default function GalleryGrid() {
   const selectedIds = useGalleryStore((s) => s.selectedIds)
   const toggleSelection = useGalleryStore((s) => s.toggleSelection)
   const clearSelection = useGalleryStore((s) => s.clearSelection)
+  const selectRange = useGalleryStore((s) => s.selectRange)
 
+  // Anchor for shift-click range selection
+  const lastSelectedIndex = useRef<number | null>(null)
+
+  const queryClient = useQueryClient()
+
+  // Always fetch all files for the folder (no backend type filter).
+  // Filtering is done client-side so tab switching is instant and type
+  // counts are always available from the single loaded dataset.
   const { data, isLoading, error } = useQuery({
-    queryKey: ['folder-files', folderId, sortField, sortOrder, mediaTypeFilter],
+    queryKey: ['folder-files', folderId, sortField, sortOrder],
     queryFn: () =>
       listFolderFiles(folderId!, {
         page: 1,
         page_size: 500,
         sort: sortField,
         order: sortOrder,
-        media_type: mediaTypeFilter,
       }),
     enabled: !!folderId,
   })
 
-  // Clear selection when folder/filter changes
+  const { mutate: deleteSelected, isPending: isDeleting } = useMutation({
+    mutationFn: () => bulkDeleteFiles(Array.from(selectedIds)),
+    onSuccess: () => {
+      clearSelection()
+      queryClient.invalidateQueries({ queryKey: ['folder-files'] })
+      queryClient.invalidateQueries({ queryKey: ['folder-trashed'] })
+      queryClient.invalidateQueries({ queryKey: ['trash'] })
+    },
+  })
+
+  // Clear selection and anchor when folder or sort changes
   useEffect(() => {
     clearSelection()
-  }, [folderId, sortField, sortOrder, mediaTypeFilter, clearSelection])
+    lastSelectedIndex.current = null
+  }, [folderId, sortField, sortOrder, clearSelection])
 
-  const files: FileResponse[] = data?.items ?? []
-  const totalCount = data?.total ?? 0
+  // All files loaded from the server (unfiltered)
+  const allFiles: FileResponse[] = data?.items ?? []
+
+  // Client-side type filtering — no extra request needed
+  const files =
+    mediaTypeFilter === 'all'
+      ? allFiles
+      : allFiles.filter((f) => f.media_type === mediaTypeFilter)
+
+  // Counts derived directly from the loaded dataset
+  const typeCounts = {
+    image: allFiles.filter((f) => f.media_type === 'image').length,
+    video: allFiles.filter((f) => f.media_type === 'video').length,
+    audio: allFiles.filter((f) => f.media_type === 'audio').length,
+  }
+
+  const totalCount = files.length
   const allFileIds = files.map((f) => f.id)
   const anySelected = selectedIds.size > 0
 
@@ -110,7 +144,27 @@ export default function GalleryGrid() {
     [setLightboxIndex]
   )
 
+  function handleSelect(id: string, index: number, shiftKey: boolean) {
+    if (shiftKey && lastSelectedIndex.current !== null) {
+      const lo = Math.min(lastSelectedIndex.current, index)
+      const hi = Math.max(lastSelectedIndex.current, index)
+      selectRange(files.slice(lo, hi + 1).map((f) => f.id))
+      // anchor stays — successive shift-clicks extend from the same origin
+    } else {
+      toggleSelection(id)
+      lastSelectedIndex.current = index
+    }
+  }
+
+  function handleDelete() {
+    const count = selectedIds.size
+    if (window.confirm(`Move ${count} ${count === 1 ? 'file' : 'files'} to Trash? Files will be permanently deleted after 30 days.`)) {
+      deleteSelected()
+    }
+  }
+
   // Derive inner content
+
   let inner: React.ReactNode
 
   if (isResolving || isLoading) {
@@ -167,7 +221,7 @@ export default function GalleryGrid() {
                     onClick={() => handleTileClick(startIndex + colIndex)}
                     selected={selectedIds.has(file.id)}
                     anySelected={anySelected}
-                    onSelect={toggleSelection}
+                    onSelect={(id, shiftKey) => handleSelect(id, startIndex + colIndex, shiftKey)}
                   />
                 </div>
               ))}
@@ -181,7 +235,13 @@ export default function GalleryGrid() {
   return (
     <div className="flex flex-col h-full">
       {!isResolving && !isLoading && folderId && (
-        <GalleryToolbar totalCount={totalCount} allFileIds={allFileIds} />
+        <GalleryToolbar
+          totalCount={totalCount}
+          typeCounts={typeCounts}
+          allFileIds={allFileIds}
+          onDelete={handleDelete}
+          isDeleting={isDeleting}
+        />
       )}
 
       {/* containerRef is always mounted so ResizeObserver fires on first render */}

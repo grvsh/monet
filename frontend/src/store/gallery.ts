@@ -19,6 +19,7 @@ interface GalleryState {
   toggleSelection: (id: string) => void
   clearSelection: () => void
   selectAll: (ids: string[]) => void
+  selectRange: (ids: string[]) => void
 }
 
 export const useGalleryStore = create<GalleryState>((set) => ({
@@ -42,4 +43,6 @@ export const useGalleryStore = create<GalleryState>((set) => ({
     }),
   clearSelection: () => set({ selectedIds: new Set<string>() }),
   selectAll: (ids) => set({ selectedIds: new Set(ids) }),
+  selectRange: (ids) =>
+    set((s) => ({ selectedIds: new Set([...s.selectedIds, ...ids]) })),
 }))

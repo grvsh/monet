@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.database import get_session
 from app.models.db import Folder, MediaFile, RootFolder, User, UserRootPref
-from app.models.schemas import FileResponse, FolderResponse, PaginatedFiles
+from app.models.schemas import FileResponse, FolderResponse, FolderTypeCounts, PaginatedFiles
 
 router = APIRouter()
 
@@ -190,6 +190,39 @@ async def list_folder_files(
         page=page,
         page_size=page_size,
         pages=pages,
+    )
+
+
+@router.get("/{folder_id}/type-counts", response_model=FolderTypeCounts)
+async def get_folder_type_counts(
+    folder_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> FolderTypeCounts:
+    """Return counts of active files per media type for a folder."""
+    folder = await session.get(Folder, folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    visible_root_ids = await _get_user_visible_root_ids(current_user, session)
+    if folder.root_folder_id not in visible_root_ids:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    base = (
+        select(MediaFile.media_type, func.count().label("cnt"))
+        .where(
+            MediaFile.folder_id == folder_id,
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.missing_since.is_(None),
+        )
+        .group_by(MediaFile.media_type)
+    )
+    result = await session.execute(base)
+    counts: dict[str, int] = {row.media_type: row.cnt for row in result.all()}
+    return FolderTypeCounts(
+        image=counts.get("image", 0),
+        video=counts.get("video", 0),
+        audio=counts.get("audio", 0),
     )
 
 

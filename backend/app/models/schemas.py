@@ -219,6 +219,12 @@ class PaginatedFiles(BaseModel):
     pages: int
 
 
+class FolderTypeCounts(BaseModel):
+    image: int
+    video: int
+    audio: int
+
+
 # ---------------------------------------------------------------------------
 # Scan Jobs
 # ---------------------------------------------------------------------------
