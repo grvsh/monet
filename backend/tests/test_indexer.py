@@ -114,17 +114,18 @@ class TestUpsertMediaFile:
 
     async def test_resets_processed_at_on_mtime_change(
         self, db_session: AsyncSession, root_folder: RootFolder,
-        folder_vacation: Folder, media_file_jpg: MediaFile
+        folder_vacation: Folder, media_file_jpg: MediaFile, tmp_media_dir: Path
     ):
         from app.services.indexer import upsert_media_file
         media_file_jpg.processed_at = datetime.now(timezone.utc)
         await db_session.flush()
 
+        abs_path = str(tmp_media_dir / "2024" / "vacation" / "IMG_001.jpg")
         new_mtime = datetime(2024, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
         file, is_new = await upsert_media_file(
             db_session, root_folder.id, folder_vacation.id,
-            "/fake/path", "2024/vacation/IMG_001.jpg",
-            new_mtime,  # different mtime
+            abs_path, "2024/vacation/IMG_001.jpg",
+            new_mtime,  # different mtime — triggers size re-read
             "image", "image/jpeg", "jpg",
         )
         assert file.processed_at is None  # reset

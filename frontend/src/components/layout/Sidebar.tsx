@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Settings, Image, Trash2 } from 'lucide-react'
+import { Settings, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useFolderTree } from '../../hooks/useFolderTree'
 import FolderTree from '../folder/FolderTree'
@@ -98,9 +98,7 @@ export default function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-4 border-b border-neutral-800">
-        <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center">
-          <Image size={16} className="text-white" />
-        </div>
+        <img src="/icon.svg" alt="" className="w-7 h-7 rounded-md" aria-hidden="true" />
         <span className="text-base font-bold tracking-tight text-neutral-100">Monet</span>
       </div>
 

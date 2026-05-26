@@ -1,0 +1,27 @@
+<svg width="300" height="300" viewBox="0 0 300 300" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Monet Media icon</title>
+  <desc>Pastel diagonal stripes with a thick handwritten-style M</desc>
+  <defs>
+    <clipPath id="sq">
+      <rect width="300" height="300" rx="32"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <polygon points="0,0 86,0 0,86"           fill="#FFB3BA"/>
+    <polygon points="86,0 172,0 0,172 0,86"   fill="#FFDFBA"/>
+    <polygon points="172,0 258,0 0,258 0,172" fill="#FFFFBA"/>
+    <polygon points="258,0 300,0 300,42 0,300 0,258" fill="#BAFFC9"/>
+    <polygon points="300,42 300,128 86,300 0,300" fill="#BAE1FF"/>
+    <polygon points="300,128 300,214 172,300 86,300" fill="#D4BAFF"/>
+    <polygon points="300,214 300,300 172,300" fill="#FFBAEE"/>
+    <path
+      d="M 62,248 C 60,200 58,140 63,72 C 65,60 70,58 76,62 C 95,80 118,118 138,148 C 143,156 148,160 152,160 C 156,160 161,155 166,148 C 186,118 210,78 228,62 C 234,56 239,58 241,70 C 245,100 244,180 242,248"
+      fill="none"
+      stroke="#E07070"
+      stroke-width="28"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+  <rect width="300" height="300" rx="32" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1.5"/>
+</svg>

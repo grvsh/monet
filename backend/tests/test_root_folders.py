@@ -159,15 +159,14 @@ class TestFsBrowseSecurity:
 
 
 class TestFsBrowse:
-    async def test_browse_root(self, client: AsyncClient, admin_headers: dict):
-        resp = await client.get("/api/fs/browse?path=/", headers=admin_headers)
+    async def test_browse_allowed_dir(self, client: AsyncClient, admin_headers: dict):
+        """Browse a directory that is within MONET_BROWSE_ROOTS (/tmp in tests)."""
+        resp = await client.get("/api/fs/browse?path=/tmp", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "path" in data
         assert "entries" in data
         assert isinstance(data["entries"], list)
-        # At filesystem root, parent should be None
-        assert data["parent"] is None
 
     async def test_browse_tmp(self, client: AsyncClient, admin_headers: dict, tmp_path):
         (tmp_path / "subdir_a").mkdir()

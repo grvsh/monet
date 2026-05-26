@@ -81,7 +81,7 @@ class TestGetMe:
 
     async def test_get_me_no_token(self, client: AsyncClient):
         resp = await client.get("/api/auth/me")
-        assert resp.status_code == 403  # HTTPBearer returns 403 when no credentials
+        assert resp.status_code == 401  # auto_error=False → our 401 "Not authenticated"
 
     async def test_get_me_invalid_token(self, client: AsyncClient):
         resp = await client.get("/api/auth/me", headers={"Authorization": "Bearer invalid.jwt.token"})

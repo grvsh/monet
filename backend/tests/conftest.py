@@ -8,7 +8,6 @@ Each test gets its own transaction that is rolled back on teardown — no state 
 """
 from __future__ import annotations
 
-import asyncio
 import io
 import os
 import struct
@@ -24,6 +23,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from PIL import Image
 from sqlalchemy import event, text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncSession,
@@ -47,6 +47,8 @@ os.environ.setdefault("MONET_CACHE_DIR", TEST_CACHE_DIR)
 os.environ.setdefault("JWT_SECRET_KEY", "test_secret_key_not_for_production_use_only_32b")
 os.environ.setdefault("MONET_WATCH_ENABLED", "false")
 os.environ.setdefault("MONET_SCAN_ON_STARTUP", "false")
+os.environ.setdefault("LOGIN_RATE_LIMIT", "10000/minute")  # disable effective rate limiting in tests
+os.environ.setdefault("MONET_BROWSE_ROOTS", '["/tmp"]')    # allow /tmp for fs-browse tests
 
 # Now import app modules (settings are already patched via env)
 from app.core.security import hash_password
@@ -64,22 +66,17 @@ from app.models.db import (
 )
 from app.redis_client import get_redis
 
-# ── Async test mode ───────────────────────────────────────────────────────────
-
-pytest_plugins = ("anyio",)
-
-
 # ── Engine / schema setup (session-scoped) ─────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    return asyncio.DefaultEventLoopPolicy()
-
 
 @pytest_asyncio.fixture(scope="session")
 async def db_engine():
-    """Create the test engine and tables once per session."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    """Create the test engine and tables once per session.
+
+    NullPool skips connection pooling so each connect() call creates a fresh
+    connection in whichever event loop is active — required when fixtures and
+    tests run across different loop scopes.
+    """
+    engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "pgcrypto"'))
         await conn.run_sync(Base.metadata.drop_all)

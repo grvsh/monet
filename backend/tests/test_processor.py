@@ -219,7 +219,7 @@ class TestProcessSyncDispatch:
         w, h = _process_sync(
             str(mp3), "audio", "mp3",
             thumb, preview,
-            thumb_size=100, max_w=800, max_h=600,
+            thumb_size=100, preview_max_w=800, preview_max_h=600,
             thumb_quality=85, preview_quality=90,
         )
         assert w is None

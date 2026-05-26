@@ -6,6 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import ffmpeg
 from PIL import Image, ImageOps
 
 _RAW_EXTENSIONS = {"cr2", "cr3", "nef", "nrw", "dng", "orf", "raf", "arw", "rw2", "pef", "srw"}
@@ -134,6 +135,7 @@ def _to_srgb(img: Image.Image) -> Image.Image:
 
 def _save_thumb(img: Image.Image, thumb_path: Path, thumb_size: int, quality: int) -> None:
     """Save a thumbnail: longest side = thumb_size, JPEG."""
+    thumb_path.parent.mkdir(parents=True, exist_ok=True)
     t = img.copy()
     t.thumbnail((thumb_size, thumb_size), Image.LANCZOS)
     t.save(str(thumb_path), "JPEG", quality=quality, optimize=True)
@@ -147,6 +149,7 @@ def _save_preview(
     quality: int,
 ) -> None:
     """Save a preview: fits within max_w × max_h, JPEG, aspect preserved."""
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
     p = img.copy()
     p.thumbnail((max_w, max_h), Image.LANCZOS)
     p.save(str(preview_path), "JPEG", quality=quality, optimize=True)
@@ -183,8 +186,6 @@ def _process_video(
     preview_quality: int,
 ) -> tuple[int | None, int | None]:
     """Process a video: extract frame at 10% duration, write thumbnail + preview."""
-    import ffmpeg
-
     probe = ffmpeg.probe(abs_path)
     video_stream = next(
         (s for s in probe["streams"] if s["codec_type"] == "video"), None

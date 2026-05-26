@@ -166,20 +166,20 @@ async def set_my_root_prefs(
     session: AsyncSession = Depends(get_session),
 ) -> RootPrefsResponse:
     """Upsert the current user's root folder visibility prefs."""
-    async with session.begin():
-        for item in body.prefs:
-            existing = await session.get(
-                UserRootPref, {"user_id": current_user.id, "root_folder_id": item.root_folder_id}
+    for item in body.prefs:
+        existing = await session.get(
+            UserRootPref, {"user_id": current_user.id, "root_folder_id": item.root_folder_id}
+        )
+        if existing:
+            existing.is_visible = item.is_visible
+        else:
+            pref = UserRootPref(
+                user_id=current_user.id,
+                root_folder_id=item.root_folder_id,
+                is_visible=item.is_visible,
             )
-            if existing:
-                existing.is_visible = item.is_visible
-            else:
-                pref = UserRootPref(
-                    user_id=current_user.id,
-                    root_folder_id=item.root_folder_id,
-                    is_visible=item.is_visible,
-                )
-                session.add(pref)
+            session.add(pref)
+    await session.flush()
 
     # Reload all prefs and return
     rf_result = await session.execute(

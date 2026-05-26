@@ -1,0 +1,27 @@
+<svg width="32" height="32" viewBox="0 0 32 32" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>Monet Media favicon</title>
+  <desc>Pastel diagonal stripes with a thick handwritten-style M</desc>
+  <defs>
+    <clipPath id="sq">
+      <rect width="32" height="32" rx="4"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <polygon points="0,0 9,0 0,9"            fill="#FFB3BA"/>
+    <polygon points="9,0 18,0 0,18 0,9"      fill="#FFDFBA"/>
+    <polygon points="18,0 27,0 0,27 0,18"    fill="#FFFFBA"/>
+    <polygon points="27,0 32,0 32,5 0,32 0,27" fill="#BAFFC9"/>
+    <polygon points="32,5 32,14 9,32 0,32"   fill="#BAE1FF"/>
+    <polygon points="32,14 32,23 18,32 9,32" fill="#D4BAFF"/>
+    <polygon points="32,23 32,32 18,32"      fill="#FFBAEE"/>
+    <path
+      d="M 6.5,26.5 C 6.3,21 6.1,15 6.6,7.5 C 6.8,6.3 7.4,6 7.9,6.4 C 9.8,8.4 12.2,12.5 14.4,15.8 C 14.9,16.6 15.4,17 16,17 C 16.6,17 17.1,16.5 17.6,15.8 C 19.8,12.5 22.3,8.2 24.2,6.4 C 24.7,5.9 25.2,6.1 25.4,7.3 C 25.8,10.3 25.7,19 25.5,26.5"
+      fill="none"
+      stroke="#E07070"
+      stroke-width="3.0"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+  <rect width="32" height="32" rx="4" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="0.5"/>
+</svg>

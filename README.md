@@ -2,6 +2,8 @@
 
 Self-hosted media management for personal photo and video libraries. Browse, search, and organize your files through a web UI backed by automatic indexing, thumbnail generation, and EXIF metadata extraction.
 
+![Monet gallery view](docs/monet_screenshot.jpg)
+
 ---
 
 ## What it does
