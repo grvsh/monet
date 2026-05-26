@@ -42,8 +42,9 @@ services:
       JWT_SECRET_KEY: test_secret_key_not_for_production_use_only
       MONET_WATCH_ENABLED: "false"
       MONET_SCAN_ON_STARTUP: "false"
+      COVERAGE_FILE: /tmp/.coverage
     volumes:
       - ./backend:/app
       - /tmp/monet_test_cache:/tmp/monet_test_cache
     command: >
-      pytest -v --cov=app --cov-report=term-missing --cov-report=html:/app/coverage_html -x
+      pytest -v --cov=app --cov-report=term-missing -x
