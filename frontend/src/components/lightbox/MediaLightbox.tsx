@@ -5,7 +5,7 @@ import Video from 'yet-another-react-lightbox/plugins/video'
 import 'yet-another-react-lightbox/styles.css'
 import type { FileResponse } from '../../types/api'
 import MetadataPanel from '../metadata/MetadataPanel'
-import { Info, PanelRight, Download } from 'lucide-react'
+import { Info, Download, PanelRight } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { downloadFile } from '../../api/download'
 
@@ -79,6 +79,7 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
 
   const portalContent = isEntering && !isClosing && currentFile ? (
     panelVisible ? (
+      /* ── Metadata panel ── */
       <div
         style={{ zIndex: 99999 }}
         className="w-[360px] fixed right-0 top-0 bottom-0 overflow-y-auto border-l border-neutral-700 bg-neutral-900"
@@ -95,11 +96,12 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
         <MetadataPanel fileId={currentFile.id} />
       </div>
     ) : (
+      /* ── Panel closed: reopen button sits below YARL's own X button ── */
       <button
         style={{ zIndex: 99999 }}
         onClick={() => setShowMeta(true)}
-        className="fixed top-3 right-3 p-2 rounded-md bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
-        title="Show file info"
+        className="fixed top-14 right-3 p-2 rounded-md bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+        title="Show file info (I)"
       >
         <PanelRight size={18} />
       </button>

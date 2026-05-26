@@ -140,16 +140,9 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
           />
         </div>
 
-        {/* RAW badge top-right */}
-        {file.is_raw && (
-          <div className="absolute top-1 right-1">
-            <Badge variant="yellow">RAW</Badge>
-          </div>
-        )}
-
         {/* Video duration */}
         {file.media_type === 'video' && file.duration_sec != null && (
-          <div className={cn('absolute top-1', file.is_raw ? 'right-10' : 'right-1')}>
+          <div className="absolute top-1 right-1">
             <span className="rounded bg-black/70 px-1 py-0.5 text-xs text-white font-mono">
               {formatDuration(file.duration_sec)}
             </span>
@@ -165,6 +158,13 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
           </div>
         )}
       </div>{/* end inner overflow-hidden div */}
+
+      {/* RAW badge — outside overflow-hidden so it's not covered by download button */}
+      {file.is_raw && (
+        <div className="absolute top-1.5 right-10 z-10 pointer-events-none">
+          <Badge variant="yellow">RAW</Badge>
+        </div>
+      )}
 
       {/* Download button — top-right, outside overflow-hidden so dropdown isn't clipped */}
       <div
