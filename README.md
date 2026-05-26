@@ -87,15 +87,7 @@ git clone https://github.com/grvsh/monet.git
 cd monet
 ```
 
-### 3. Create the cache directory
-
-Thumbnails and previews are stored here. The backend container writes to it via a bind mount.
-
-```bash
-mkdir -p ~/.monet/cache
-```
-
-### 4. Configure environment
+### 3. Configure environment
 
 ```bash
 cp .env.example .env
@@ -107,6 +99,7 @@ Open `.env` and set at minimum:
 |---|---|
 | `REDIS_PASSWORD` | Any strong random string — `python3 -c "import secrets; print(secrets.token_hex(24))"` |
 | `JWT_SECRET_KEY` | 32-byte random hex — `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| `MONET_CACHE_PATH` | Host path where thumbnails and previews are stored. Defaults to `/opt/monet/cache`. Point this at a directory on your data drive if needed — e.g. `MONET_CACHE_PATH=/mnt/data/monet/cache`. **Keeping the cache on an SSD or NVMe drive is strongly recommended** — thumbnails and previews are read on every gallery page load, and spinning disk latency will noticeably slow down the UI. |
 | `MONET_BROWSE_ROOTS` | Comma-separated paths the admin may browse when adding folders (e.g. `/mnt,/media`) |
 | `MONET_CORS_ORIGINS` | Allowed origins — set to your server's hostname/IP if accessing from another machine |
 
@@ -200,6 +193,7 @@ All settings are read from environment variables (or `.env`). Key options:
 
 | Variable | Default | Description |
 |---|---|---|
+| `MONET_CACHE_PATH` | `/opt/monet/cache` | Host path for the thumbnail and preview cache. Recommended: SSD or NVMe for fast gallery loads. |
 | `MONET_THUMB_SIZE` | `480` | Thumbnail longest edge in pixels |
 | `MONET_PREVIEW_MAX_WIDTH` | `3840` | Preview image max width |
 | `MONET_PREVIEW_MAX_HEIGHT` | `2160` | Preview image max height |
