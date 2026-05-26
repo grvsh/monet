@@ -210,3 +210,29 @@ All settings are read from environment variables (or `.env`). Key options:
 | `MONET_SECURE_COOKIES` | `false` | Set `true` when serving over HTTPS |
 | `LOGIN_RATE_LIMIT` | `10/minute` | Max login attempts per IP |
 | `MONET_BROWSE_ROOTS` | `/mnt,/media,/srv,/data,/home` | Directories browsable when adding root folders |
+
+---
+
+## Running on a NAS OS (OMV, Unraid, TrueNAS)
+
+Monet should run fine on NAS operating systems — they are standard Linux under the hood and support Docker the same way as Ubuntu. That said, we have not been able to test on these platforms directly as we don't have access to them. If you run into issues, please open a GitHub issue.
+
+**OpenMediaVault:** Install the **OMV-Extras** plugin from the OMV web UI, which adds Docker and Portainer with one click. Then follow the standard setup steps above via SSH or the Portainer terminal. Your drives are already mounted (typically under `/srv/dev-disk-by-uuid-xxx/` or a path you configured in OMV's Shared Folders) — use those paths when adding root folders in Monet.
+
+**Unraid:** Docker is built in. Create a new stack in the Compose Manager plugin and paste in the `docker-compose.yml`.
+
+**TrueNAS Scale:** Use the **Custom App** option under Apps, or deploy via the built-in Compose support in newer releases.
+
+### Port 80 conflict
+
+OMV, Unraid, and TrueNAS all run their own admin web UI — typically on port 80. Monet's frontend also defaults to port 80, which will conflict.
+
+**Fix:** move OMV's (or your NAS OS's) admin panel to a different port (e.g. 8080) in its network settings, or change Monet's frontend port in `docker-compose.yml`:
+
+```yaml
+  frontend:
+    ports:
+      - "8096:80"   # change 8096 to any free port
+```
+
+Then access Monet at `http://<your-nas-ip>:8096/`.
