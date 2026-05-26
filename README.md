@@ -219,6 +219,33 @@ Monet should run fine on NAS operating systems — they are standard Linux under
 
 **TrueNAS Scale:** Use the **Custom App** option under Apps, or deploy via the built-in Compose support in newer releases.
 
+### Setting environment variables
+
+Monet is configured via a `.env` file (see [Configure environment](#3-configure-environment) above). On a NAS you have a few ways to create it:
+
+**Via SSH (works everywhere)**
+
+SSH into the NAS, `cd` to the directory containing `docker-compose.yml`, and run:
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+**Via Portainer's stack UI (OMV / any Portainer install)**
+
+When deploying via **Stacks → Add stack**, paste in the `docker-compose.yml` and scroll down to the **Environment variables** section. Add each key/value pair there — Portainer injects them exactly as a `.env` file would, and you never need SSH.
+
+**Via Unraid's file manager**
+
+Compose Manager stores stacks under `/boot/config/plugins/compose.manager/projects/<stack-name>/`. Create the `.env` file there using Unraid's built-in Tools → File Manager.
+
+**Hardcoding in docker-compose.yml (non-secret values only)**
+
+You can set non-sensitive values like `MONET_CACHE_PATH` or `MONET_CORS_ORIGINS` directly in the `environment:` block of the compose file. Do **not** hardcode `JWT_SECRET_KEY` or `REDIS_PASSWORD` this way — those should always come from the `.env` file or the Portainer secrets UI.
+
+---
+
 ### Port 80 conflict
 
 OMV, Unraid, and TrueNAS all run their own admin web UI — typically on port 80. Monet's frontend also defaults to port 80, which will conflict.
