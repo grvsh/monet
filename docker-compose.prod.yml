@@ -1,0 +1,89 @@
+# Production compose file — uses pre-built images from GHCR.
+# See https://github.com/grvsh/monet#quick-install for setup instructions.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: monet
+      POSTGRES_USER: monet
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    image: ghcr.io/grvsh/monet-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  backend:
+    image: ghcr.io/grvsh/monet-backend:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
+      # Add your media directories below (one line per location).
+      # The :ro flag keeps your originals safe — Monet never writes to them.
+      # - /path/to/your/photos:/path/to/your/photos:ro
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    image: ghcr.io/grvsh/monet-backend:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
+      # - /path/to/your/photos:/path/to/your/photos:ro
+    command: python -m arq app.workers.worker.WorkerSettings
+
+  asset-worker:
+    image: ghcr.io/grvsh/monet-backend:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
+      # - /path/to/your/photos:/path/to/your/photos:ro
+    command: python -m arq app.workers.worker.AssetWorkerSettings
+
+volumes:
+  pgdata:
+  redisdata:

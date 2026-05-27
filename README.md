@@ -32,6 +32,74 @@ Self-hosted media management for personal photo and video libraries. Browse, sea
 
 ---
 
+## Quick install
+
+Pre-built multi-arch images (amd64 + arm64) are published to GHCR on every release. No repo clone needed.
+
+### 1. Install Docker
+
+Follow the [official Docker install guide](https://docs.docker.com/engine/install/) for your OS, then:
+
+```bash
+sudo usermod -aG docker $USER && newgrp docker
+```
+
+### 2. Download the compose file and generate secrets
+
+```bash
+mkdir monet && cd monet
+
+# Download the production compose file
+curl -fsSL https://raw.githubusercontent.com/grvsh/monet/main/docker-compose.prod.yml \
+  -o docker-compose.yml
+
+# Generate secrets and write .env
+python3 - <<'EOF'
+import secrets
+pg = secrets.token_hex(16)
+lines = [
+    f"POSTGRES_PASSWORD={pg}",
+    f"DATABASE_URL=postgresql+asyncpg://monet:{pg}@db:5432/monet",
+    f"REDIS_PASSWORD={secrets.token_hex(24)}",
+    f"JWT_SECRET_KEY={secrets.token_hex(32)}",
+    "MONET_CACHE_PATH=/opt/monet/cache",
+    "MONET_BROWSE_ROOTS=/mnt,/media,/srv,/data",
+]
+open('.env', 'w').write('\n'.join(lines) + '\n')
+print("✓ .env written")
+EOF
+```
+
+### 3. Add your media paths
+
+Open `docker-compose.yml` and uncomment (and edit) the volume lines in the `backend`, `worker`, and `asset-worker` services:
+
+```yaml
+      - /path/to/your/photos:/path/to/your/photos:ro
+```
+
+Add one line per media location. The `:ro` flag keeps your originals safe — Monet never writes to them.
+
+### 4. Start
+
+```bash
+docker compose up -d
+```
+
+Images are pulled automatically on first run. Migrations run on backend startup.
+
+### 5. Create the first admin account
+
+```bash
+docker compose exec backend python scripts/create_admin.py
+```
+
+### 6. Open the app
+
+Navigate to `http://<your-server-ip>/` and log in. Go to **Settings → Root Folders**, add a folder path, and click **Scan**.
+
+---
+
 ## Repository layout
 
 ```
@@ -57,7 +125,7 @@ monet/
 
 ---
 
-## Setup on a fresh Ubuntu machine
+## Building from source
 
 ### 1. System dependencies
 
