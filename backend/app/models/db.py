@@ -290,6 +290,67 @@ class MediaFile(Base):
     )
 
 
+class Album(Base):
+    __tablename__ = "albums"
+    __table_args__ = (
+        Index("idx_albums_owner", "owner_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ, nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ, nullable=False, server_default=text("now()")
+    )
+
+    # Relationships
+    owner: Mapped[User] = relationship("User")
+    items: Mapped[list[AlbumFile]] = relationship(
+        back_populates="album", cascade="all, delete-orphan",
+        order_by="AlbumFile.position, AlbumFile.added_at",
+    )
+
+
+class AlbumFile(Base):
+    __tablename__ = "album_files"
+    __table_args__ = (
+        Index("idx_album_files_album", "album_id"),
+        Index("idx_album_files_file", "file_id"),
+    )
+
+    album_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("albums.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media_files.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ, nullable=False, server_default=text("now()")
+    )
+
+    # Relationships
+    album: Mapped[Album] = relationship(back_populates="items")
+    file: Mapped[MediaFile] = relationship("MediaFile")
+
+
 class FileMetadata(Base):
     __tablename__ = "file_metadata"
     __table_args__ = (

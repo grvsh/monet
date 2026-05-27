@@ -2,11 +2,12 @@ import { useRef, useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listFolderFiles, resolveFolderByPath } from '../../api/folders'
+import { listFolderFiles, resolveFolderByPath, listChildFolders } from '../../api/folders'
 import { useGalleryStore } from '../../store/gallery'
 import { bulkDeleteFiles } from '../../api/files'
 import type { FileResponse } from '../../types/api'
 import MediaTile from './MediaTile'
+import FolderTile from './FolderTile'
 import GalleryToolbar from './GalleryToolbar'
 import FolderTrashSection from './FolderTrashSection'
 import FolderMissingSection from './FolderMissingSection'
@@ -85,6 +86,12 @@ export default function GalleryGrid() {
         sort: sortField,
         order: sortOrder,
       }),
+    enabled: !!folderId,
+  })
+
+  const { data: childFolders } = useQuery({
+    queryKey: ['folder-children', folderId],
+    queryFn: () => listChildFolders(folderId!),
     enabled: !!folderId,
   })
 
@@ -246,6 +253,21 @@ export default function GalleryGrid() {
 
       {/* containerRef is always mounted so ResizeObserver fires on first render */}
       <div ref={containerRef} className="flex-1 overflow-y-auto bg-neutral-950 p-2">
+        {/* Subfolder tiles — always shown regardless of active media filter */}
+        {columnCount > 0 && childFolders && childFolders.length > 0 && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${columnCount}, ${tileSize}px)`,
+              gap: GAP,
+              marginBottom: GAP * 3,
+            }}
+          >
+            {childFolders.map((folder) => (
+              <FolderTile key={folder.id} folder={folder} size={tileSize} />
+            ))}
+          </div>
+        )}
         {inner}
         {folderId && !isLoading && !isResolving && (
           <FolderMissingSection folderId={folderId} tileSize={tileSize || 200} gap={GAP} />

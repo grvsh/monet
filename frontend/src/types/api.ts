@@ -79,6 +79,16 @@ export interface PaginatedFiles {
   pages: number
 }
 
+export interface AlbumResponse {
+  id: string
+  name: string
+  owner_id: string
+  file_count: number
+  cover_url: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ScanJobResponse {
   id: string
   root_folder_id: string | null

@@ -83,7 +83,7 @@ app.add_middleware(
 )
 
 # ---- API routers -----------------------------------------------------------
-from app.api import auth, files, folders, fs_browse, index, root_folders, search, thumbnails, users  # noqa: E402
+from app.api import albums, auth, files, folders, fs_browse, index, root_folders, search, thumbnails, users  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
@@ -94,6 +94,7 @@ app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(thumbnails.router, prefix="/api", tags=["media"])
 app.include_router(index.router, prefix="/api/index", tags=["indexing"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
+app.include_router(albums.router, prefix="/api/albums", tags=["albums"])
 
 # ---- Serve built frontend (if present) ------------------------------------
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"

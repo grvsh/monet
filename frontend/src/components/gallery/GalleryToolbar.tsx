@@ -1,6 +1,8 @@
-import { Trash2 } from 'lucide-react'
+import { Trash2, ArrowUp } from 'lucide-react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useGalleryStore } from '../../store/gallery'
 import { cn } from '../../lib/utils'
+import AddToAlbumMenu from '../album/AddToAlbumMenu'
 
 interface TypeCounts {
   image: number
@@ -57,6 +59,14 @@ export default function GalleryToolbar({
 
   const selectionCount = selectedIds.size
 
+  // Go-up navigation — available when inside a subfolder (path has > 2 segments after /)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const pathParts = location.pathname.split('/').filter(Boolean)
+  // pathParts: ['browse', rootFolderId, ...subpath]
+  const canGoUp = pathParts.length > 2
+  const parentPath = canGoUp ? '/' + pathParts.slice(0, -1).join('/') : null
+
   function handleSortChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const opt = SORT_OPTIONS[parseInt(e.target.value, 10)]
     if (opt) {
@@ -111,6 +121,22 @@ export default function GalleryToolbar({
 
         <div className="w-px h-4 bg-neutral-700 shrink-0" />
 
+        {/* Go up — always visible, disabled at root */}
+        <button
+          onClick={() => canGoUp && navigate(parentPath!)}
+          disabled={!canGoUp}
+          className={cn(
+            'flex items-center gap-1 text-xs shrink-0 transition-colors',
+            canGoUp
+              ? 'text-neutral-400 hover:text-neutral-200 cursor-pointer'
+              : 'text-neutral-600 cursor-not-allowed'
+          )}
+          title="Go to parent folder"
+        >
+          <ArrowUp size={12} />
+          Up
+        </button>
+
         {/* Select all — always visible */}
         <button
           onClick={() => selectAll(allFileIds)}
@@ -129,6 +155,8 @@ export default function GalleryToolbar({
             >
               Clear selection
             </button>
+
+            <AddToAlbumMenu />
 
             <button
               onClick={onDelete}

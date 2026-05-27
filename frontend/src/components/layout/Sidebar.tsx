@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Settings, Trash2 } from 'lucide-react'
+import { Settings, Trash2, FolderOpen, Images } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useFolderTree } from '../../hooks/useFolderTree'
 import FolderTree from '../folder/FolderTree'
+import AlbumList from '../album/AlbumList'
 import { Spinner } from '../ui/Spinner'
 import type { RootFolderResponse } from '../../types/api'
 
@@ -41,6 +42,9 @@ const MIN_WIDTH = 160
 const MAX_WIDTH = 480
 const DEFAULT_WIDTH = 260
 const STORAGE_KEY = 'monet-sidebar-width'
+const TAB_KEY = 'monet-sidebar-tab'
+
+type SidebarTab = 'folders' | 'albums'
 
 function getSavedWidth(): number {
   try {
@@ -53,12 +57,33 @@ function getSavedWidth(): number {
   return DEFAULT_WIDTH
 }
 
+function getSavedTab(): SidebarTab {
+  try {
+    const v = localStorage.getItem(TAB_KEY)
+    if (v === 'albums') return 'albums'
+  } catch { /* ignore */ }
+  return 'folders'
+}
+
 export default function Sidebar() {
   const location = useLocation()
   const { visibleRootFolders, isLoading } = useFolderTree()
 
   const [width, setWidth] = useState(getSavedWidth)
+  const [activeTab, setActiveTab] = useState<SidebarTab>(getSavedTab)
   const dragging = useRef(false)
+
+  // Switch to albums tab when navigating to an album
+  useEffect(() => {
+    if (location.pathname.startsWith('/albums')) {
+      setActiveTab('albums')
+    }
+  }, [location.pathname])
+
+  function switchTab(tab: SidebarTab) {
+    setActiveTab(tab)
+    try { localStorage.setItem(TAB_KEY, tab) } catch { /* ignore */ }
+  }
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -102,24 +127,56 @@ export default function Sidebar() {
         <span className="text-base font-bold tracking-tight text-neutral-100">Monet</span>
       </div>
 
-      {/* Folder tree */}
+      {/* Tabs */}
+      <div className="flex border-b border-neutral-800 shrink-0">
+        <button
+          onClick={() => switchTab('folders')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors',
+            activeTab === 'folders'
+              ? 'text-neutral-100 border-b-2 border-blue-500'
+              : 'text-neutral-500 hover:text-neutral-300'
+          )}
+        >
+          <FolderOpen size={13} />
+          Folders
+        </button>
+        <button
+          onClick={() => switchTab('albums')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors',
+            activeTab === 'albums'
+              ? 'text-neutral-100 border-b-2 border-blue-500'
+              : 'text-neutral-500 hover:text-neutral-300'
+          )}
+        >
+          <Images size={13} />
+          Albums
+        </button>
+      </div>
+
+      {/* Content */}
       <nav className="flex-1 overflow-y-auto py-2">
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Spinner size="sm" />
-          </div>
-        ) : visibleRootFolders.length === 0 ? (
-          <div className="px-4 py-6 text-center">
-            <p className="text-xs text-neutral-500">No folders configured.</p>
-            <Link
-              to="/settings"
-              className="mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
-            >
-              Go to Settings
-            </Link>
-          </div>
+        {activeTab === 'folders' ? (
+          isLoading ? (
+            <div className="flex justify-center py-8">
+              <Spinner size="sm" />
+            </div>
+          ) : visibleRootFolders.length === 0 ? (
+            <div className="px-4 py-6 text-center">
+              <p className="text-xs text-neutral-500">No folders configured.</p>
+              <Link
+                to="/settings"
+                className="mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Go to Settings
+              </Link>
+            </div>
+          ) : (
+            <RootFolderTree folders={visibleRootFolders} />
+          )
         ) : (
-          <RootFolderTree folders={visibleRootFolders} />
+          <AlbumList />
         )}
       </nav>
 

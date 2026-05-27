@@ -226,6 +226,35 @@ class FolderTypeCounts(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Albums
+# ---------------------------------------------------------------------------
+
+
+class AlbumResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    owner_id: UUID
+    file_count: int
+    cover_url: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CreateAlbumRequest(BaseModel):
+    name: str
+
+
+class RenameAlbumRequest(BaseModel):
+    name: str
+
+
+class AlbumFilesRequest(BaseModel):
+    file_ids: list[UUID]
+
+
+# ---------------------------------------------------------------------------
 # Scan Jobs
 # ---------------------------------------------------------------------------
 
