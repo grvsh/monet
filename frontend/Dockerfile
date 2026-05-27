@@ -10,7 +10,11 @@ EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host"]
 
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM base AS builder
+# Run on the host's native platform (amd64 in CI) to avoid QEMU emulation
+# issues with Node.js during cross-compilation. The output is platform-agnostic
+# static assets, so the target platform only matters for the nginx stage below.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
+WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
