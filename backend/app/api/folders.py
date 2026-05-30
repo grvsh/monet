@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+import os
 import uuid
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import get_current_user
 from app.database import get_session
 from app.models.db import Folder, MediaFile, RootFolder, User, UserRootPref
+
+logger = logging.getLogger(__name__)
 from app.models.schemas import FileResponse, FolderResponse, FolderTypeCounts, PaginatedFiles
 
 router = APIRouter()
@@ -62,8 +67,8 @@ def _file_to_response(f: MediaFile) -> FileResponse:
     )
 
 
-# NOTE: /by-path must be registered before /{folder_id} so FastAPI's literal match
-# takes priority over the UUID path parameter.
+# NOTE: /by-path and /search must be registered before /{folder_id} so FastAPI's
+# literal match takes priority over the UUID path parameter.
 
 @router.get("", response_model=list[FolderResponse])
 async def list_root_level_folders(
@@ -82,6 +87,29 @@ async def list_root_level_folders(
             Folder.root_folder_id.in_(visible_root_ids),
         )
         .order_by(Folder.root_folder_id, Folder.name)
+    )
+    folders = result.scalars().all()
+    return [FolderResponse.model_validate(f) for f in folders]
+
+
+@router.get("/search", response_model=list[FolderResponse])
+async def search_folders(
+    q: str = Query(default="", min_length=1, max_length=200),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[FolderResponse]:
+    """Search folders by name (case-insensitive substring). Returns up to 60 results."""
+    visible_root_ids = await _get_user_visible_root_ids(current_user, session)
+    if not visible_root_ids:
+        return []
+    result = await session.execute(
+        select(Folder)
+        .where(
+            Folder.root_folder_id.in_(visible_root_ids),
+            Folder.name.ilike(f"%{q}%"),
+        )
+        .order_by(Folder.name)
+        .limit(60)
     )
     folders = result.scalars().all()
     return [FolderResponse.model_validate(f) for f in folders]
@@ -279,3 +307,96 @@ async def list_folder_trashed_files(
     )
     files = result.scalars().all()
     return [_file_to_response(f) for f in files]
+
+
+@router.get("/{folder_id}/disk-stats")
+async def get_folder_disk_stats(
+    folder_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Return the count of files on disk in this folder (non-recursive)."""
+    folder = await session.get(Folder, folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    root = await session.get(RootFolder, folder.root_folder_id)
+    if not root:
+        raise HTTPException(status_code=404, detail="Root folder not found")
+
+    abs_path = Path(root.path) / folder.path
+    try:
+        file_count = sum(1 for e in os.scandir(abs_path) if e.is_file())
+    except (FileNotFoundError, PermissionError):
+        file_count = 0
+
+    return {"file_count": file_count}
+
+
+@router.post("/{folder_id}/remove-from-monet", status_code=204)
+async def remove_folder_from_monet(
+    folder_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Remove a folder from Monet's library without touching disk."""
+    folder = await session.get(Folder, folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    root = await session.get(RootFolder, folder.root_folder_id)
+    if root and current_user.role != "admin" and root.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to remove this folder")
+
+    if folder.parent_id:
+        parent = await session.get(Folder, folder.parent_id)
+        if parent:
+            parent.child_folder_count = max(0, parent.child_folder_count - 1)
+
+    await session.delete(folder)
+    await session.commit()
+
+
+@router.delete("/{folder_id}", status_code=204)
+async def delete_empty_folder_from_disk(
+    folder_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete an empty folder from disk and remove it from the library."""
+    if not current_user.allow_disk_deletion:
+        raise HTTPException(status_code=403, detail="Disk deletion is not enabled for your account")
+
+    folder = await session.get(Folder, folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    root = await session.get(RootFolder, folder.root_folder_id)
+    if root and current_user.role != "admin" and root.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to delete this folder")
+
+    file_count = await session.scalar(
+        select(func.count()).where(MediaFile.folder_id == folder_id)
+    )
+    child_count = await session.scalar(
+        select(func.count()).where(Folder.parent_id == folder_id)
+    )
+    if file_count or child_count:
+        raise HTTPException(status_code=409, detail="Folder is not empty")
+
+    abs_path = Path(root.path) / folder.path
+    try:
+        os.rmdir(abs_path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.error("Failed to delete folder %s from disk: %s", abs_path, e)
+        raise HTTPException(status_code=500, detail=f"Could not delete folder from disk: {e}")
+
+    if folder.parent_id:
+        parent = await session.get(Folder, folder.parent_id)
+        if parent:
+            parent.child_folder_count = max(0, parent.child_folder_count - 1)
+
+    await session.delete(folder)
+    await session.commit()

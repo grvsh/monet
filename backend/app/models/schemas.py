@@ -28,6 +28,7 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime
     last_login_at: datetime | None
+    allow_disk_deletion: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -100,6 +101,7 @@ class RootFolderResponse(BaseModel):
     created_at: datetime
     last_scanned_at: datetime | None
     parent_root_id: UUID | None
+    created_by: UUID | None = None
 
 
 # ---------------------------------------------------------------------------

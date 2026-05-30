@@ -48,6 +48,9 @@ class User(Base):
         TIMESTAMPTZ, nullable=False, server_default=text("now()")
     )
     last_login_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
+    allow_disk_deletion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
     # Relationships
     root_prefs: Mapped[list[UserRootPref]] = relationship(

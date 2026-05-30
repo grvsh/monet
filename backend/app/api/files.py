@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import logging
+import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import get_current_user
 from app.database import get_session
 from app.models.db import FileMetadata, Folder, MediaFile, RootFolder, User, UserRootPref
 from app.models.schemas import FileDetailResponse, FileResponse, PaginatedFiles
+from app.services.media import preview_cache_path, thumbnail_cache_path
 
 router = APIRouter()
 
@@ -65,6 +72,10 @@ class BulkDeleteRequest(BaseModel):
 
 
 class BulkRestoreRequest(BaseModel):
+    file_ids: list[uuid.UUID]
+
+
+class BulkDeleteFromDiskRequest(BaseModel):
     file_ids: list[uuid.UUID]
 
 
@@ -198,6 +209,70 @@ async def bulk_dismiss_missing_files(
         await session.delete(f)
     await session.commit()
     return {"dismissed": len(files)}
+
+
+@router.post("/bulk-delete-from-disk")
+async def bulk_delete_from_disk(
+    body: BulkDeleteFromDiskRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    if not current_user.allow_disk_deletion:
+        raise HTTPException(status_code=403, detail="Disk deletion is not enabled for your account")
+    if not body.file_ids:
+        return {"deleted": 0, "failed": 0}
+
+    result = await session.execute(
+        select(MediaFile).where(MediaFile.id.in_(body.file_ids))
+    )
+    files = result.scalars().all()
+
+    # Batch-load root folders to avoid N+1 and do auth check up front
+    root_ids = {f.root_folder_id for f in files}
+    roots_result = await session.execute(
+        select(RootFolder).where(RootFolder.id.in_(root_ids))
+    )
+    roots = {r.id: r for r in roots_result.scalars().all()}
+
+    for root_id in root_ids:
+        root = roots.get(root_id)
+        if root and current_user.role != "admin" and root.created_by != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to delete files from this folder",
+            )
+
+    deleted = 0
+    failed = 0
+    for f in files:
+        root = roots.get(f.root_folder_id)
+        if root is None:
+            continue
+
+        file_path = Path(root.path) / f.path
+        try:
+            os.unlink(file_path)
+        except FileNotFoundError:
+            pass  # Already gone from disk — still clean up DB
+        except OSError as e:
+            logger.error("Failed to delete %s from disk: %s", file_path, e)
+            failed += 1
+            continue  # Can't delete from disk; leave DB record intact
+
+        for cache_path in [
+            thumbnail_cache_path(f.id, settings.monet_cache_dir),
+            preview_cache_path(f.id, settings.monet_cache_dir),
+        ]:
+            try:
+                os.unlink(cache_path)
+            except OSError:
+                pass
+
+        await session.delete(f)
+        deleted += 1
+
+    await session.commit()
+    return {"deleted": deleted, "failed": failed}
 
 
 @router.get("/{file_id}", response_model=FileDetailResponse)
