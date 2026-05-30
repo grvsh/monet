@@ -7,6 +7,7 @@ interface AuthState {
   isInitializing: boolean
   setAuth: (token: string, user: UserResponse) => void
   setToken: (token: string) => void
+  setUser: (user: UserResponse) => void
   setInitializing: (v: boolean) => void
   logout: () => void
 }
@@ -17,6 +18,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isInitializing: true,
   setAuth: (token, user) => set({ accessToken: token, user }),
   setToken: (token) => set({ accessToken: token }),
+  setUser: (user) => set({ user }),
   setInitializing: (v) => set({ isInitializing: v }),
   logout: () => set({ accessToken: null, user: null }),
 }))

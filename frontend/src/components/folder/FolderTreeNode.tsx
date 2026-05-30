@@ -46,7 +46,7 @@ export default function FolderTreeNode({ folder, rootPath, depth = 0 }: FolderTr
   }, [open, folder.id])
 
   const folderPath = `/browse/${folder.root_folder_id}/${folder.path}`
-  const isActive = location.pathname === folderPath
+  const isActive = decodeURIComponent(location.pathname) === folderPath
 
   function handleNavigate() {
     navigate(folderPath)
@@ -58,7 +58,7 @@ export default function FolderTreeNode({ folder, rootPath, depth = 0 }: FolderTr
         className={cn(
           'flex items-center gap-1.5 rounded px-2 py-1.5 text-sm cursor-pointer transition-colors select-none',
           isActive
-            ? 'bg-neutral-800 text-neutral-100'
+            ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40'
             : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
         )}
       >
@@ -92,11 +92,24 @@ export default function FolderTreeNode({ folder, rootPath, depth = 0 }: FolderTr
           <span className="truncate">{folder.name}</span>
         </button>
 
-        {/* File count badge */}
-        {folder.file_count > 0 && (
-          <Badge variant="neutral" className="shrink-0 tabular-nums">
-            {folder.file_count}
-          </Badge>
+        {/* Count badges */}
+        {(folder.file_count > 0 || folder.child_folder_count > 0) && (
+          <span
+            title={`${folder.file_count} ${folder.file_count === 1 ? 'file' : 'files'} and ${folder.child_folder_count} ${folder.child_folder_count === 1 ? 'folder' : 'folders'}`}
+            className="flex items-center gap-0.5 shrink-0"
+          >
+            {folder.file_count > 0 && (
+              <Badge variant="neutral" className="tabular-nums">
+                {folder.file_count}
+              </Badge>
+            )}
+            {folder.child_folder_count > 0 && (
+              <Badge variant="neutral" className="tabular-nums flex items-center gap-0.5">
+                <Folder size={9} className="opacity-50" />
+                {folder.child_folder_count}
+              </Badge>
+            )}
+          </span>
         )}
       </div>
 

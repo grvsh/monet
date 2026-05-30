@@ -19,7 +19,7 @@ export default function AddToAlbumMenu() {
   const { data: albums, isLoading } = useQuery({
     queryKey: ['albums'],
     queryFn: listAlbums,
-    enabled: open,
+    staleTime: 30_000,
   })
 
   const { mutate: addFiles, isPending: isAdding } = useMutation({
@@ -36,8 +36,9 @@ export default function AddToAlbumMenu() {
     },
   })
 
+  // Accepts name as argument to avoid stale-closure issues with newName state
   const { mutate: doCreate, isPending: isCreating } = useMutation({
-    mutationFn: () => createAlbum(newName.trim()),
+    mutationFn: (name: string) => createAlbum(name),
     onSuccess: (album) => {
       queryClient.invalidateQueries({ queryKey: ['albums'] })
       addFiles(album.id)
@@ -45,6 +46,11 @@ export default function AddToAlbumMenu() {
       setShowNew(false)
     },
   })
+
+  function handleCreate() {
+    const name = newName.trim()
+    if (name) doCreate(name)
+  }
 
   // Close on outside click
   useEffect(() => {
@@ -63,6 +69,7 @@ export default function AddToAlbumMenu() {
   return (
     <div ref={menuRef} className="relative shrink-0">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
           'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
@@ -87,6 +94,7 @@ export default function AddToAlbumMenu() {
 
               {albums?.map((album) => (
                 <button
+                  type="button"
                   key={album.id}
                   onClick={() => !isAdding && addFiles(album.id)}
                   disabled={isAdding}
@@ -112,7 +120,7 @@ export default function AddToAlbumMenu() {
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newName.trim()) doCreate()
+                        if (e.key === 'Enter') handleCreate()
                         if (e.key === 'Escape') {
                           setShowNew(false)
                           setNewName('')
@@ -123,13 +131,15 @@ export default function AddToAlbumMenu() {
                     />
                     <div className="flex gap-3 mt-1.5">
                       <button
-                        onClick={() => newName.trim() && doCreate()}
+                        type="button"
+                        onClick={handleCreate}
                         disabled={!newName.trim() || isCreating}
                         className="text-xs text-blue-400 hover:text-blue-300 disabled:text-neutral-600 transition-colors"
                       >
                         {isCreating ? 'Creating…' : 'Create & add'}
                       </button>
                       <button
+                        type="button"
                         onClick={() => {
                           setShowNew(false)
                           setNewName('')
@@ -142,6 +152,7 @@ export default function AddToAlbumMenu() {
                   </div>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => setShowNew(true)}
                     className="flex items-center gap-2 w-full px-3 py-2 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
                   >

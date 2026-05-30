@@ -6,6 +6,7 @@ export interface UserResponse {
   is_active: boolean
   created_at: string
   last_login_at: string | null
+  allow_disk_deletion: boolean
 }
 
 export interface RootFolderResponse {
@@ -16,6 +17,7 @@ export interface RootFolderResponse {
   created_at: string
   last_scanned_at: string | null
   parent_root_id: string | null
+  created_by: string | null
 }
 
 export interface FolderResponse {

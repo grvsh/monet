@@ -75,7 +75,13 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
 
   return (
     <div
-      onClick={onClick}
+      onClick={(e) => {
+        if (e.shiftKey) {
+          onSelect(file.id, true)
+        } else {
+          onClick()
+        }
+      }}
       className="group cursor-pointer flex flex-col w-full h-full"
       title={file.filename}
       role="button"
@@ -125,7 +131,7 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
             readOnly suppresses the React controlled-without-onChange warning;
             all selection logic (including shift-key) is handled via onClick. */}
         <div
-          className="absolute top-1.5 left-1.5"
+          className="absolute top-1.5 left-1.5 z-10"
           onClick={(e) => e.stopPropagation()}
         >
           <input
@@ -143,7 +149,7 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
 
         {/* Video duration */}
         {file.media_type === 'video' && file.duration_sec != null && (
-          <div className="absolute top-1 right-1">
+          <div className="absolute bottom-1.5 right-1.5">
             <span className="rounded bg-black/70 px-1 py-0.5 text-xs text-white font-mono">
               {formatDuration(file.duration_sec)}
             </span>
@@ -152,7 +158,7 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
 
         {/* Video play icon overlay */}
         {file.media_type === 'video' && file.has_thumbnail && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             <div className="w-10 h-10 rounded-full bg-black/60 flex items-center justify-center">
               <Video size={18} className="text-white ml-0.5" />
             </div>

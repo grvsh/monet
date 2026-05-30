@@ -1,9 +1,11 @@
 import { useRef, useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listFolderFiles, resolveFolderByPath, listChildFolders } from '../../api/folders'
+import { listFolderFiles, resolveFolderByPath, listChildFolders, deleteEmptyFolder, getFolderDiskStats, removeFolderFromMonet } from '../../api/folders'
+import { listRootFolders } from '../../api/rootFolders'
 import { useGalleryStore } from '../../store/gallery'
+import { useAuthStore } from '../../store/auth'
 import { bulkDeleteFiles } from '../../api/files'
 import type { FileResponse } from '../../types/api'
 import MediaTile from './MediaTile'
@@ -12,6 +14,7 @@ import GalleryToolbar from './GalleryToolbar'
 import FolderTrashSection from './FolderTrashSection'
 import FolderMissingSection from './FolderMissingSection'
 import MediaLightbox from '../lightbox/MediaLightbox'
+import DeleteFromDiskModal from './DeleteFromDiskModal'
 import { Spinner } from '../ui/Spinner'
 
 const TILE_SIZE = 200
@@ -58,6 +61,10 @@ export default function GalleryGrid() {
   const containerRef = useRef<HTMLDivElement>(null)
   const containerWidth = useContainerWidth(containerRef)
 
+  const { rootFolderId } = useParams<{ rootFolderId?: string; '*'?: string }>()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const currentUser = useAuthStore((s) => s.user)
   const { folderId, isResolving } = useFolderIdForRoute()
   const sortField = useGalleryStore((s) => s.sortField)
   const sortOrder = useGalleryStore((s) => s.sortOrder)
@@ -72,7 +79,21 @@ export default function GalleryGrid() {
   // Anchor for shift-click range selection
   const lastSelectedIndex = useRef<number | null>(null)
 
+  const [showDeleteFromDiskModal, setShowDeleteFromDiskModal] = useState(false)
+
   const queryClient = useQueryClient()
+
+  // Root folders — already cached by the sidebar, no extra fetch
+  const { data: rootFolders } = useQuery({
+    queryKey: ['root-folders'],
+    queryFn: listRootFolders,
+  })
+
+  const currentRootFolder = rootFolders?.find((rf) => rf.id === rootFolderId)
+  const canDeleteFromDisk = Boolean(
+    currentUser?.allow_disk_deletion &&
+      (currentUser.role === 'admin' || currentRootFolder?.created_by === currentUser.id)
+  )
 
   // Always fetch all files for the folder (no backend type filter).
   // Filtering is done client-side so tab switching is instant and type
@@ -95,6 +116,16 @@ export default function GalleryGrid() {
     enabled: !!folderId,
   })
 
+  const folderAppearsEmpty = !isLoading && !isResolving && !!folderId &&
+    (data?.items.length ?? 0) === 0 && (childFolders?.length ?? 0) === 0
+
+  const { data: diskStats } = useQuery({
+    queryKey: ['folder-disk-stats', folderId],
+    queryFn: () => getFolderDiskStats(folderId!),
+    enabled: folderAppearsEmpty,
+    staleTime: 10_000,
+  })
+
   const { mutate: deleteSelected, isPending: isDeleting } = useMutation({
     mutationFn: () => bulkDeleteFiles(Array.from(selectedIds)),
     onSuccess: () => {
@@ -110,6 +141,17 @@ export default function GalleryGrid() {
     clearSelection()
     lastSelectedIndex.current = null
   }, [folderId, sortField, sortOrder, clearSelection])
+
+  // Escape clears selection (unless a modal is open — let the modal handle it)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && selectedIds.size > 0 && !showDeleteFromDiskModal && lightboxIndex < 0) {
+        clearSelection()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [selectedIds.size, clearSelection, showDeleteFromDiskModal, lightboxIndex])
 
   // All files loaded from the server (unfiltered)
   const allFiles: FileResponse[] = data?.items ?? []
@@ -127,7 +169,6 @@ export default function GalleryGrid() {
     audio: allFiles.filter((f) => f.media_type === 'audio').length,
   }
 
-  const totalCount = files.length
   const allFileIds = files.map((f) => f.id)
   const anySelected = selectedIds.size > 0
 
@@ -165,9 +206,13 @@ export default function GalleryGrid() {
 
   function handleDelete() {
     const count = selectedIds.size
-    if (window.confirm(`Move ${count} ${count === 1 ? 'file' : 'files'} to Trash? Files will be permanently deleted after 30 days.`)) {
+    if (window.confirm(`Trash ${count} ${count === 1 ? 'file' : 'files'}? This removes them from Monet but keeps the files on disk.`)) {
       deleteSelected()
     }
+  }
+
+  function handleDeleteFromDisk() {
+    setShowDeleteFromDiskModal(true)
   }
 
   // Derive inner content
@@ -192,10 +237,72 @@ export default function GalleryGrid() {
         <p className="text-neutral-500 text-sm">Select a folder from the sidebar to browse files.</p>
       </div>
     )
-  } else if (files.length === 0) {
+  } else if (files.length === 0 && (!childFolders || childFolders.length === 0)) {
+    const diskFileCount = diskStats?.file_count ?? 0
+    const hasNonMediaFiles = diskFileCount > 0
+
+    function goToParent() {
+      const pathParts = decodeURIComponent(location.pathname).split('/').filter(Boolean)
+      const parentPath = pathParts.length > 2
+        ? '/' + pathParts.slice(0, -1).join('/')
+        : pathParts.length > 1
+        ? '/browse/' + pathParts[1]
+        : '/'
+      navigate(parentPath)
+    }
+
     inner = (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-neutral-500 text-sm">No files found in this folder.</p>
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        {hasNonMediaFiles ? (
+          <>
+            <p className="text-neutral-500 text-sm text-center">
+              This folder has no media files but has{' '}
+              <span className="text-neutral-300">{diskFileCount} other {diskFileCount === 1 ? 'file' : 'files'}</span> on disk.
+            </p>
+            <button
+              onClick={async () => {
+                if (!window.confirm('Remove this folder from Monet? The folder and its files will remain on disk.')) return
+                try {
+                  await removeFolderFromMonet(folderId!)
+                  queryClient.invalidateQueries({ queryKey: ['folder-children'] })
+                  queryClient.invalidateQueries({ queryKey: ['root-level-folders'] })
+                  goToParent()
+                } catch {
+                  alert('Failed to remove folder.')
+                }
+              }}
+              className="px-3 py-1.5 rounded border border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-xs font-medium text-neutral-300 hover:text-neutral-100 transition-colors"
+            >
+              Remove from Monet
+            </button>
+            <p className="text-xs text-neutral-600 text-center max-w-xs leading-relaxed">
+              Removes this folder from Monet but does not delete anything from disk.
+              If you scan again, it will reappear.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-neutral-500 text-sm">This folder is empty.</p>
+            {canDeleteFromDisk && folderId && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Delete this empty folder from disk? This cannot be undone.')) return
+                  try {
+                    await deleteEmptyFolder(folderId)
+                    queryClient.invalidateQueries({ queryKey: ['folder-children'] })
+                    queryClient.invalidateQueries({ queryKey: ['root-level-folders'] })
+                    goToParent()
+                  } catch {
+                    alert('Failed to delete folder.')
+                  }
+                }}
+                className="px-3 py-1.5 rounded border border-red-800/60 bg-red-950/40 hover:bg-red-900/50 text-xs font-medium text-red-300 hover:text-red-200 transition-colors"
+              >
+                Delete folder
+              </button>
+            )}
+          </>
+        )}
       </div>
     )
   } else if (columnCount > 0) {
@@ -243,32 +350,37 @@ export default function GalleryGrid() {
     <div className="flex flex-col h-full">
       {!isResolving && !isLoading && folderId && (
         <GalleryToolbar
-          totalCount={totalCount}
           typeCounts={typeCounts}
+          folderCount={childFolders?.length ?? 0}
           allFileIds={allFileIds}
           onDelete={handleDelete}
           isDeleting={isDeleting}
+          canDeleteFromDisk={canDeleteFromDisk}
+          onDeleteFromDisk={handleDeleteFromDisk}
         />
       )}
 
       {/* containerRef is always mounted so ResizeObserver fires on first render */}
       <div ref={containerRef} className="flex-1 overflow-y-auto bg-neutral-950 p-2">
-        {/* Subfolder tiles — always shown regardless of active media filter */}
-        {columnCount > 0 && childFolders && childFolders.length > 0 && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${columnCount}, ${tileSize}px)`,
-              gap: GAP,
-              marginBottom: GAP * 3,
-            }}
-          >
-            {childFolders.map((folder) => (
-              <FolderTile key={folder.id} folder={folder} size={tileSize} />
-            ))}
-          </div>
-        )}
         {inner}
+        {/* Subfolder tiles — shown after files, always regardless of active media filter */}
+        {columnCount > 0 && childFolders && childFolders.length > 0 && (
+          <>
+            {allFiles.length > 0 && <div className="border-t border-neutral-800 my-3" />}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${columnCount}, ${tileSize}px)`,
+                gap: GAP,
+                marginBottom: GAP * 3,
+              }}
+            >
+              {childFolders.map((folder) => (
+                <FolderTile key={folder.id} folder={folder} size={tileSize} />
+              ))}
+            </div>
+          </>
+        )}
         {folderId && !isLoading && !isResolving && (
           <FolderMissingSection folderId={folderId} tileSize={tileSize || 200} gap={GAP} />
         )}
@@ -284,6 +396,12 @@ export default function GalleryGrid() {
           onClose={() => setLightboxIndex(-1)}
         />
       )}
+
+      <DeleteFromDiskModal
+        open={showDeleteFromDiskModal}
+        fileIds={Array.from(selectedIds)}
+        onClose={() => setShowDeleteFromDiskModal(false)}
+      />
     </div>
   )
 }

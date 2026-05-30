@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../store/auth'
 import { cn } from '../../lib/utils'
 import RootFolderAdmin from './RootFolderAdmin'
@@ -8,7 +9,9 @@ import AccountSettings from './AccountSettings'
 type Tab = 'folders' | 'account'
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('folders')
+  const location = useLocation()
+  const initialTab: Tab = (location.state as { tab?: Tab } | null)?.tab ?? 'folders'
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const user = useAuthStore((s) => s.user)
 
   const tabs: Array<{ id: Tab; label: string }> = [

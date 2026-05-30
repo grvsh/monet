@@ -6,7 +6,23 @@ import { listAlbums, createAlbum } from '../../api/albums'
 import { cn } from '../../lib/utils'
 import { Spinner } from '../ui/Spinner'
 
-export default function AlbumList() {
+// Characters of `query` must all appear in `text`, in order (case-insensitive)
+function fuzzyMatch(text: string, query: string): boolean {
+  if (!query) return true
+  const t = text.toLowerCase()
+  const q = query.toLowerCase()
+  let qi = 0
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) qi++
+  }
+  return qi === q.length
+}
+
+interface AlbumListProps {
+  filter?: string
+}
+
+export default function AlbumList({ filter = '' }: AlbumListProps) {
   const location = useLocation()
   const queryClient = useQueryClient()
   const [showNew, setShowNew] = useState(false)
@@ -15,10 +31,11 @@ export default function AlbumList() {
   const { data: albums, isLoading } = useQuery({
     queryKey: ['albums'],
     queryFn: listAlbums,
+    staleTime: 30_000,
   })
 
   const { mutate: doCreate, isPending } = useMutation({
-    mutationFn: () => createAlbum(newName.trim()),
+    mutationFn: (name: string) => createAlbum(name),
     onSuccess: () => {
       setNewName('')
       setShowNew(false)
@@ -28,8 +45,11 @@ export default function AlbumList() {
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
-    if (newName.trim()) doCreate()
+    const name = newName.trim()
+    if (name) doCreate(name)
   }
+
+  const visible = albums?.filter((a) => fuzzyMatch(a.name, filter)) ?? []
 
   return (
     <div className="px-2 space-y-0.5">
@@ -43,7 +63,13 @@ export default function AlbumList() {
             <p className="text-xs text-neutral-500 px-3 py-4 text-center">No albums yet.</p>
           )}
 
-          {albums?.map((album) => (
+          {filter && visible.length === 0 && (albums?.length ?? 0) > 0 && (
+            <p className="text-xs text-neutral-500 px-3 py-4 text-center">
+              No albums match "{filter}".
+            </p>
+          )}
+
+          {visible.map((album) => (
             <Link
               key={album.id}
               to={`/albums/${album.id}`}
@@ -72,8 +98,8 @@ export default function AlbumList() {
         </>
       )}
 
-      {/* New album inline form */}
-      {showNew && (
+      {/* New album inline form — only show when not filtering */}
+      {!filter && showNew && (
         <form onSubmit={handleCreate} className="px-3 py-1">
           <input
             autoFocus
@@ -110,9 +136,10 @@ export default function AlbumList() {
         </form>
       )}
 
-      {/* New album button */}
-      {!showNew && (
+      {/* New album button — hidden while filtering so it doesn't confuse */}
+      {!filter && !showNew && (
         <button
+          type="button"
           onClick={() => setShowNew(true)}
           className="flex items-center gap-2 w-full px-3 py-2 text-xs text-neutral-500 hover:text-neutral-200 transition-colors"
         >

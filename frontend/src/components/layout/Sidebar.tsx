@@ -1,19 +1,24 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { Settings, Trash2, FolderOpen, Images } from 'lucide-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Settings, Trash2, FolderOpen, Images, Search, X, Folder, AlertTriangle } from 'lucide-react'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { cn } from '../../lib/utils'
+import { useAuthStore } from '../../store/auth'
 import { useFolderTree } from '../../hooks/useFolderTree'
 import FolderTree from '../folder/FolderTree'
 import AlbumList from '../album/AlbumList'
+import { listAlbums } from '../../api/albums'
+import { searchFolders } from '../../api/folders'
 import { Spinner } from '../ui/Spinner'
+import { Badge } from '../ui/Badge'
 import type { RootFolderResponse } from '../../types/api'
+
 
 interface RootFolderTreeProps {
   folders: RootFolderResponse[]
 }
 
 function RootFolderTree({ folders }: RootFolderTreeProps) {
-  // Separate top-level roots (no parent) from descendant roots
   const topLevel = folders.filter((f) => !f.parent_root_id || !folders.find((p) => p.id === f.parent_root_id))
   const byParent = new Map<string, RootFolderResponse[]>()
   for (const f of folders) {
@@ -34,6 +39,124 @@ function RootFolderTree({ folders }: RootFolderTreeProps) {
           />
         </li>
       ))}
+    </ul>
+  )
+}
+
+interface SearchInputProps {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+}
+
+function SearchInput({ value, onChange, placeholder }: SearchInputProps) {
+  return (
+    <div className="relative mx-2 mb-1">
+      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded border border-neutral-700 bg-neutral-800 pl-7 pr-6 py-1 text-xs text-neutral-200 placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-blue-500/60 focus:border-blue-500/60"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+          aria-label="Clear search"
+        >
+          <X size={11} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function FolderSearchResults({
+  query,
+  rootFolders,
+}: {
+  query: string
+  rootFolders: RootFolderResponse[]
+}) {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const rootNameById = new Map(rootFolders.map((r) => [r.id, r.name]))
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['folder-search', query],
+    queryFn: () => searchFolders(query),
+    enabled: query.length > 0,
+    staleTime: 10_000,
+  })
+
+  if (isFetching) {
+    return (
+      <div className="flex justify-center py-6">
+        <Spinner size="sm" />
+      </div>
+    )
+  }
+
+  if (!data?.length) {
+    return (
+      <p className="px-4 py-4 text-xs text-neutral-500 text-center">
+        No folders match "{query}".
+      </p>
+    )
+  }
+
+  return (
+    <ul className="space-y-0.5 px-2">
+      {data.map((folder) => {
+        const href = `/browse/${folder.root_folder_id}${folder.path ? '/' + folder.path : ''}`
+        const isActive = decodeURIComponent(location.pathname) === href
+
+        // Build full display path: "RootName / seg1 / seg2 / folderName"
+        const rootName = rootNameById.get(folder.root_folder_id) ?? ''
+        const segments = folder.path ? folder.path.split('/') : []
+        const fullParts = rootName ? [rootName, ...segments] : segments
+        const displayPath = fullParts.join(' / ')
+
+        return (
+          <li key={folder.id}>
+            <button
+              type="button"
+              onClick={() => navigate(href)}
+              className={cn(
+                'w-full flex items-start gap-2 rounded px-2 py-1.5 text-left transition-colors',
+                isActive
+                  ? 'bg-neutral-800 text-neutral-100'
+                  : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
+              )}
+            >
+              <Folder size={14} className="shrink-0 mt-0.5 text-blue-400" />
+              <span className="text-xs leading-snug break-all flex-1">{displayPath}</span>
+              {(folder.file_count > 0 || folder.child_folder_count > 0) && (
+                <span
+                  title={`${folder.file_count} ${folder.file_count === 1 ? 'file' : 'files'} and ${folder.child_folder_count} ${folder.child_folder_count === 1 ? 'folder' : 'folders'}`}
+                  className="flex items-center gap-0.5 shrink-0 self-start mt-0.5"
+                >
+                  {folder.file_count > 0 && (
+                    <Badge variant="neutral" className="tabular-nums">
+                      {folder.file_count}
+                    </Badge>
+                  )}
+                  {folder.child_folder_count > 0 && (
+                    <Badge variant="neutral" className="tabular-nums flex items-center gap-0.5">
+                      <Folder size={9} className="opacity-50" />
+                      {folder.child_folder_count}
+                    </Badge>
+                  )}
+                </span>
+              )}
+            </button>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -69,9 +192,18 @@ export default function Sidebar() {
   const location = useLocation()
   const { visibleRootFolders, isLoading } = useFolderTree()
 
+  const currentUser = useAuthStore((s) => s.user)
   const [width, setWidth] = useState(getSavedWidth)
   const [activeTab, setActiveTab] = useState<SidebarTab>(getSavedTab)
+  const [folderSearch, setFolderSearch] = useState('')
+  const [albumSearch, setAlbumSearch] = useState('')
   const dragging = useRef(false)
+  const queryClient = useQueryClient()
+
+  // Warm the albums cache immediately so the Albums tab renders without a spinner
+  useEffect(() => {
+    queryClient.prefetchQuery({ queryKey: ['albums'], queryFn: listAlbums })
+  }, [queryClient])
 
   // Switch to albums tab when navigating to an album
   useEffect(() => {
@@ -130,6 +262,7 @@ export default function Sidebar() {
       {/* Tabs */}
       <div className="flex border-b border-neutral-800 shrink-0">
         <button
+          type="button"
           onClick={() => switchTab('folders')}
           className={cn(
             'flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors',
@@ -142,6 +275,7 @@ export default function Sidebar() {
           Folders
         </button>
         <button
+          type="button"
           onClick={() => switchTab('albums')}
           className={cn(
             'flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors',
@@ -155,28 +289,68 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Content */}
-      <nav className="flex-1 overflow-y-auto py-2">
+      {/* Disk deletion banner — outside the scroll area so it stays visible */}
+      {currentUser?.allow_disk_deletion && (
+        <div
+          title="Deleting files from disk is active. You can select files and delete them from disk, the selected files will be deleted permanently and the action is irrevocable."
+          className="mx-2 mt-2 shrink-0 rounded bg-red-950/60 border border-red-800/50 px-2.5 py-2 space-y-1"
+        >
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={12} className="shrink-0 text-red-400" />
+            <span className="flex-1 text-xs font-medium text-red-300">Disk deletion active</span>
+            <Link to="/settings" state={{ tab: 'account' }} className="text-xs text-red-500 hover:text-red-300 shrink-0">
+              Turn off
+            </Link>
+          </div>
+          <p className="text-xs text-red-400/70 leading-snug pl-0.5">
+            Selected files can be permanently deleted from disk.
+          </p>
+        </div>
+      )}
+
+      {/* Search — outside scroll area so it stays visible */}
+      <div className="pt-2 pb-1 shrink-0">
         {activeTab === 'folders' ? (
-          isLoading ? (
-            <div className="flex justify-center py-8">
-              <Spinner size="sm" />
-            </div>
-          ) : visibleRootFolders.length === 0 ? (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs text-neutral-500">No folders configured.</p>
-              <Link
-                to="/settings"
-                className="mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
-              >
-                Go to Settings
-              </Link>
-            </div>
-          ) : (
-            <RootFolderTree folders={visibleRootFolders} />
-          )
+          <SearchInput
+            value={folderSearch}
+            onChange={setFolderSearch}
+            placeholder="Search folders…"
+          />
         ) : (
-          <AlbumList />
+          <SearchInput
+            value={albumSearch}
+            onChange={setAlbumSearch}
+            placeholder="Search albums…"
+          />
+        )}
+      </div>
+
+      {/* Content */}
+      <nav className="flex-1 overflow-y-auto">
+        {activeTab === 'folders' ? (
+          <>
+            {folderSearch ? (
+              <FolderSearchResults query={folderSearch} rootFolders={visibleRootFolders} />
+            ) : isLoading ? (
+              <div className="flex justify-center py-8">
+                <Spinner size="sm" />
+              </div>
+            ) : visibleRootFolders.length === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <p className="text-xs text-neutral-500">No folders configured.</p>
+                <Link
+                  to="/settings"
+                  className="mt-1 text-xs text-blue-400 hover:text-blue-300 underline"
+                >
+                  Go to Settings
+                </Link>
+              </div>
+            ) : (
+              <RootFolderTree folders={visibleRootFolders} />
+            )}
+          </>
+        ) : (
+          <AlbumList filter={albumSearch} />
         )}
       </nav>
 

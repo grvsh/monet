@@ -1,8 +1,9 @@
-import { Trash2, ArrowUp } from 'lucide-react'
+import { Trash2, ArrowUp, HardDrive, Folder } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useGalleryStore } from '../../store/gallery'
 import { cn } from '../../lib/utils'
 import AddToAlbumMenu from '../album/AddToAlbumMenu'
+import MediaTypeTabs from './MediaTypeTabs'
 
 interface TypeCounts {
   image: number
@@ -11,11 +12,13 @@ interface TypeCounts {
 }
 
 interface GalleryToolbarProps {
-  totalCount: number
   typeCounts?: TypeCounts
+  folderCount?: number
   allFileIds: string[]
   onDelete: () => void
   isDeleting: boolean
+  canDeleteFromDisk?: boolean
+  onDeleteFromDisk?: () => void
 }
 
 type SortOption = {
@@ -31,21 +34,15 @@ const SORT_OPTIONS: SortOption[] = [
   { label: 'Size', field: 'size_bytes', order: 'desc' },
 ]
 
-type MediaTab = { label: string; value: 'all' | 'image' | 'video' | 'audio' }
-
-const MEDIA_TABS: MediaTab[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Photos', value: 'image' },
-  { label: 'Videos', value: 'video' },
-  { label: 'Audio', value: 'audio' },
-]
 
 export default function GalleryToolbar({
-  totalCount,
   typeCounts,
+  folderCount = 0,
   allFileIds,
   onDelete,
   isDeleting,
+  canDeleteFromDisk = false,
+  onDeleteFromDisk,
 }: GalleryToolbarProps) {
   const sortField = useGalleryStore((s) => s.sortField)
   const sortOrder = useGalleryStore((s) => s.sortOrder)
@@ -84,40 +81,18 @@ export default function GalleryToolbar({
       <div className="flex items-center gap-3 px-4 py-2.5">
 
         {/* Media type tabs */}
-        <div className="flex items-center gap-1 bg-neutral-800 rounded p-0.5 shrink-0">
-          {MEDIA_TABS.map((tab) => {
-            const count =
-              tab.value === 'all'
-                ? (typeCounts
-                    ? typeCounts.image + typeCounts.video + typeCounts.audio
-                    : totalCount)
-                : typeCounts?.[tab.value as 'image' | 'video' | 'audio'] ?? null
-            const isEmpty = typeCounts !== undefined && count === 0
+        <MediaTypeTabs
+          value={mediaTypeFilter}
+          typeCounts={typeCounts}
+          onChange={setMediaTypeFilter}
+        />
 
-            return (
-              <button
-                key={tab.value}
-                onClick={() => !isEmpty && setMediaTypeFilter(tab.value)}
-                disabled={isEmpty}
-                className={cn(
-                  'px-3 py-1 rounded text-xs font-medium transition-colors',
-                  isEmpty
-                    ? 'text-neutral-600 cursor-not-allowed'
-                    : mediaTypeFilter === tab.value
-                    ? 'bg-neutral-700 text-neutral-100'
-                    : 'text-neutral-400 hover:text-neutral-200'
-                )}
-              >
-                {tab.label}
-                {count !== null && (
-                  <span className={cn('ml-1', isEmpty ? 'text-neutral-600' : 'text-neutral-500')}>
-                    ({count.toLocaleString()})
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+        {folderCount > 0 && (
+          <div className="flex items-center gap-1 bg-neutral-800 rounded px-2.5 py-1 shrink-0">
+            <Folder size={12} className="text-neutral-400" />
+            <span className="text-xs font-medium text-neutral-400">{folderCount}</span>
+          </div>
+        )}
 
         <div className="w-px h-4 bg-neutral-700 shrink-0" />
 
@@ -161,11 +136,24 @@ export default function GalleryToolbar({
             <button
               onClick={onDelete}
               disabled={isDeleting}
+              title={canDeleteFromDisk
+                ? 'Removes files from Monet'
+                : 'Removes files from Monet. To delete files from disk, turn on Delete in Settings > Account.'}
               className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium bg-red-700 hover:bg-red-600 text-white disabled:opacity-50 transition-colors shrink-0"
             >
               <Trash2 size={12} />
-              {isDeleting ? 'Moving…' : `Move to Trash (${selectionCount})`}
+              {isDeleting ? 'Trashing…' : `Trash (${selectionCount})`}
             </button>
+
+            {canDeleteFromDisk && (
+              <button
+                onClick={onDeleteFromDisk}
+                className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium bg-red-950 hover:bg-red-900 border border-red-700 text-red-300 hover:text-red-200 transition-colors shrink-0"
+              >
+                <HardDrive size={12} />
+                Delete ({selectionCount})
+              </button>
+            )}
           </>
         )}
 

@@ -6,6 +6,11 @@ export async function listRootLevelFolders(): Promise<FolderResponse[]> {
   return data
 }
 
+export async function searchFolders(q: string): Promise<FolderResponse[]> {
+  const { data } = await client.get<FolderResponse[]>('/api/folders/search', { params: { q } })
+  return data
+}
+
 export async function resolveFolderByPath(
   rootFolderId: string,
   path: string
@@ -64,4 +69,17 @@ export async function listFolderMissingFiles(folderId: string): Promise<FileResp
 export async function listFolderTrashedFiles(folderId: string): Promise<FileResponse[]> {
   const { data } = await client.get<FileResponse[]>(`/api/folders/${folderId}/trashed-files`)
   return data
+}
+
+export async function getFolderDiskStats(folderId: string): Promise<{ file_count: number }> {
+  const { data } = await client.get<{ file_count: number }>(`/api/folders/${folderId}/disk-stats`)
+  return data
+}
+
+export async function removeFolderFromMonet(folderId: string): Promise<void> {
+  await client.post(`/api/folders/${folderId}/remove-from-monet`)
+}
+
+export async function deleteEmptyFolder(folderId: string): Promise<void> {
+  await client.delete(`/api/folders/${folderId}`)
 }

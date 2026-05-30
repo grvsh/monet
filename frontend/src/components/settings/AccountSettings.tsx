@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 import { listUsers, createUser, updateUser, deleteUser } from '../../api/index'
+import { patchMyPreferences } from '../../api/auth'
 import type { UserResponse } from '../../types/api'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
@@ -298,11 +300,49 @@ function UserManagement() {
   )
 }
 
+function DiskDeletionToggle() {
+  const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+
+  const mutation = useMutation({
+    mutationFn: (val: boolean) => patchMyPreferences({ allow_disk_deletion: val }),
+    onSuccess: (updatedUser) => setUser(updatedUser),
+  })
+
+  return (
+    <div className="max-w-sm space-y-3">
+      <h3 className="text-sm font-semibold text-neutral-200">Disk Deletion</h3>
+      <div className={`rounded-lg border p-4 space-y-3 ${user?.allow_disk_deletion ? 'border-red-800/60 bg-red-950/30' : 'border-neutral-700 bg-neutral-800/30'}`}>
+        <div className="flex items-start gap-3">
+          <AlertTriangle size={16} className={`shrink-0 mt-0.5 ${user?.allow_disk_deletion ? 'text-red-400' : 'text-neutral-500'}`} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-neutral-200">Allow Delete</p>
+            <p className="text-xs text-neutral-400 mt-0.5">
+              When enabled, files can be permanently deleted from disk. This action is irreversible.
+            </p>
+          </div>
+          <Toggle
+            checked={user?.allow_disk_deletion ?? false}
+            onChange={(val) => mutation.mutate(val)}
+            disabled={mutation.isPending}
+          />
+        </div>
+        {user?.allow_disk_deletion && (
+          <p className="text-xs text-red-400 pl-7">
+            Disk deletion is active. A warning banner will appear in the sidebar.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function AccountSettings() {
   const user = useAuthStore((s) => s.user)
 
   return (
     <div className="space-y-10">
+      <DiskDeletionToggle />
       <ChangePasswordForm />
 
       {user?.role === 'admin' && (

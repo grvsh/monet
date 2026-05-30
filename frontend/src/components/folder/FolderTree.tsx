@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { listRootLevelFolders, listChildFolders } from '../../api/folders'
 import type { RootFolderResponse } from '../../types/api'
 import FolderTreeNode from './FolderTreeNode'
+import { Badge } from '../ui/Badge'
 import { cn } from '../../lib/utils'
 
 interface FolderTreeProps {
@@ -48,14 +49,14 @@ export default function FolderTree({ rootFolder, descendantRoots = [] }: FolderT
   }, [open, rootFolder.id])
 
   const rootPath = `/browse/${rootFolder.id}`
-  const isRootActive = location.pathname === rootPath
+  const isRootActive = decodeURIComponent(location.pathname) === rootPath
 
   return (
     <div>
       {/* Root folder row */}
       <div className={cn(
         'flex items-center gap-1.5 rounded px-2 py-1.5 text-sm cursor-pointer transition-colors select-none',
-        isRootActive ? 'bg-neutral-800 text-neutral-100' : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
+        isRootActive ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40' : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
       )}>
         {hasSubfolders ? (
           <button
@@ -78,6 +79,24 @@ export default function FolderTree({ rootFolder, descendantRoots = [] }: FolderT
             : <Folder size={14} className="shrink-0 text-blue-400" />}
           <span className="truncate font-medium">{rootFolder.name}</span>
         </button>
+        {rootFolderRecord && (rootFolderRecord.file_count > 0 || rootFolderRecord.child_folder_count > 0) && (
+          <span
+            title={`${rootFolderRecord.file_count} ${rootFolderRecord.file_count === 1 ? 'file' : 'files'} and ${rootFolderRecord.child_folder_count} ${rootFolderRecord.child_folder_count === 1 ? 'folder' : 'folders'}`}
+            className="flex items-center gap-0.5 shrink-0"
+          >
+            {rootFolderRecord.file_count > 0 && (
+              <Badge variant="neutral" className="tabular-nums">
+                {rootFolderRecord.file_count}
+              </Badge>
+            )}
+            {rootFolderRecord.child_folder_count > 0 && (
+              <Badge variant="neutral" className="tabular-nums flex items-center gap-0.5">
+                <Folder size={9} className="opacity-50" />
+                {rootFolderRecord.child_folder_count}
+              </Badge>
+            )}
+          </span>
+        )}
       </div>
 
       {open && (
@@ -85,7 +104,7 @@ export default function FolderTree({ rootFolder, descendantRoots = [] }: FolderT
           {/* Descendant root folders pinned at the top — navigate to their own root */}
           {descendantRoots.map((desc) => {
             const descPath = `/browse/${desc.id}`
-            const isActive = location.pathname === descPath
+            const isActive = decodeURIComponent(location.pathname) === descPath
             return (
               <li key={desc.id}>
                 <button
@@ -94,7 +113,7 @@ export default function FolderTree({ rootFolder, descendantRoots = [] }: FolderT
                   className={cn(
                     'w-full flex items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors select-none text-left',
                     isActive
-                      ? 'bg-neutral-800 text-neutral-100'
+                      ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40'
                       : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
                   )}
                 >

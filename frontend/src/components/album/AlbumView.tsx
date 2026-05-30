@@ -10,11 +10,13 @@ import MediaLightbox from '../lightbox/MediaLightbox'
 import { Spinner } from '../ui/Spinner'
 import { ArrowUp, Images } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import MediaTypeTabs from '../gallery/MediaTypeTabs'
 
 const TILE_SIZE = 200
 const GAP = 4
 const MIN_COLUMNS = 2
 const CAPTION_HEIGHT = 52
+
 
 function useContainerWidth(ref: React.RefObject<HTMLDivElement | null>) {
   const [width, setWidth] = useState(0)
@@ -35,6 +37,8 @@ export default function AlbumView() {
   const { albumId } = useParams<{ albumId: string }>()
   const containerRef = useRef<HTMLDivElement>(null)
   const containerWidth = useContainerWidth(containerRef)
+
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all')
 
   const lightboxIndex = useGalleryStore((s) => s.lightboxIndex)
   const setLightboxIndex = useGalleryStore((s) => s.setLightboxIndex)
@@ -64,11 +68,30 @@ export default function AlbumView() {
 
   useEffect(() => {
     clearSelection()
+    setMediaTypeFilter('all')
     lastSelectedIndex.current = null
   }, [albumId, clearSelection])
 
-  const files: FileResponse[] = data?.items ?? []
-  const totalCount = files.length
+  // Clear selection when filter changes so stale cross-type selections don't linger
+  useEffect(() => {
+    clearSelection()
+    lastSelectedIndex.current = null
+  }, [mediaTypeFilter, clearSelection])
+
+  // All files from API (unfiltered) — used for counts
+  const allFiles: FileResponse[] = data?.items ?? []
+
+  const typeCounts = {
+    image: allFiles.filter((f) => f.media_type === 'image').length,
+    video: allFiles.filter((f) => f.media_type === 'video').length,
+    audio: allFiles.filter((f) => f.media_type === 'audio').length,
+  }
+
+  // Files shown in the grid (filtered)
+  const files = mediaTypeFilter === 'all'
+    ? allFiles
+    : allFiles.filter((f) => f.media_type === mediaTypeFilter)
+
   const allFileIds = files.map((f) => f.id)
   const anySelected = selectedIds.size > 0
   const selectionCount = selectedIds.size
@@ -122,8 +145,10 @@ export default function AlbumView() {
         <p className="text-sm">Select an album from the sidebar.</p>
       </div>
     )
-  } else if (files.length === 0) {
+  } else if (allFiles.length === 0) {
     inner = <div className="flex items-center justify-center h-64"><p className="text-neutral-500 text-sm">This album is empty.</p></div>
+  } else if (files.length === 0) {
+    inner = <div className="flex items-center justify-center h-64"><p className="text-neutral-500 text-sm">No {mediaTypeFilter}s in this album.</p></div>
   } else if (columnCount > 0) {
     inner = (
       <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
@@ -171,15 +196,18 @@ export default function AlbumView() {
       <div className="shrink-0 border-b border-neutral-800 bg-neutral-900">
         <div className="flex items-center gap-3 px-4 py-2.5">
 
-          {/* File count */}
-          <span className="text-xs text-neutral-400 shrink-0">
-            {totalCount.toLocaleString()} {totalCount === 1 ? 'item' : 'items'}
-          </span>
+          {/* Media type tabs */}
+          <MediaTypeTabs
+            value={mediaTypeFilter}
+            typeCounts={typeCounts}
+            onChange={setMediaTypeFilter}
+          />
 
           <div className="w-px h-4 bg-neutral-700 shrink-0" />
 
           {/* Select all */}
           <button
+            type="button"
             onClick={() => selectAll(allFileIds)}
             disabled={allFileIds.length === 0}
             className="text-xs text-neutral-400 hover:text-neutral-200 disabled:text-neutral-600 disabled:cursor-not-allowed shrink-0 transition-colors"
@@ -191,6 +219,7 @@ export default function AlbumView() {
           {selectionCount > 0 && (
             <>
               <button
+                type="button"
                 onClick={clearSelection}
                 className="text-xs text-neutral-400 hover:text-neutral-200 shrink-0 transition-colors"
               >
@@ -198,6 +227,7 @@ export default function AlbumView() {
               </button>
 
               <button
+                type="button"
                 onClick={handleRemove}
                 disabled={isRemoving}
                 className={cn(

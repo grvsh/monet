@@ -30,3 +30,8 @@ export async function getMe(): Promise<UserResponse> {
   const { data } = await client.get<UserResponse>('/api/auth/me')
   return data
 }
+
+export async function patchMyPreferences(prefs: { allow_disk_deletion: boolean }): Promise<UserResponse> {
+  const { data } = await client.patch<UserResponse>('/api/users/me/preferences', prefs)
+  return data
+}

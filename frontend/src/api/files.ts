@@ -6,6 +6,13 @@ export async function getFile(fileId: string): Promise<FileDetailResponse> {
   return data
 }
 
+export async function bulkDeleteFromDisk(fileIds: string[]): Promise<{ deleted: number; failed: number }> {
+  const { data } = await client.post<{ deleted: number; failed: number }>('/api/files/bulk-delete-from-disk', {
+    file_ids: fileIds,
+  })
+  return data
+}
+
 export async function bulkDeleteFiles(fileIds: string[]): Promise<{ trashed: number }> {
   const { data } = await client.post<{ trashed: number }>('/api/files/bulk-delete', {
     file_ids: fileIds,
