@@ -39,7 +39,7 @@ services:
               count: 1
               capabilities: [gpu]
     ports:
-      - "8100:8100"
+      - "${ML_SERVICE_PORT:-8100}:8100"
     environment:
       MODEL_CACHE_DIR: /models
       ML_API_KEY: ${ML_API_KEY:-}
