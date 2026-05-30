@@ -1,0 +1,63 @@
+# Standalone ML inference service for Monet.
+#
+# ── Same machine as Monet stack ──────────────────────────────────────────────
+# Merge with the main compose so both share the same Docker network:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ml.yml up -d
+#
+# The ml-worker (in docker-compose.yml) will reach ml-service at
+# http://ml-service:8100 over the shared internal network.
+# ML_API_KEY can be left empty — traffic never leaves the Docker bridge.
+#
+# ── Separate GPU machine ──────────────────────────────────────────────────────
+# Run only this file on the GPU machine:
+#
+#   docker compose -f docker-compose.ml.yml up -d
+#
+# Then on the main Monet machine, set in .env:
+#   MONET_ML_SERVICE_URL=http://<gpu-machine-ip>:8100
+#   MONET_ML_API_KEY=<some-secret>   # recommended when crossing the LAN
+#
+# ── Pre-downloading models (optional) ────────────────────────────────────────
+# Run once before first start to avoid download latency on first request:
+#
+#   docker compose -f docker-compose.ml.yml run --rm ml-service \
+#       python /app/scripts/download_models.py
+
+services:
+  ml-service:
+    build:
+      context: ./ml-service
+      target: production
+    image: ghcr.io/grvsh/monet-ml:latest
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8100:8100"
+    environment:
+      MODEL_CACHE_DIR: /models
+      ML_API_KEY: ${ML_API_KEY:-}
+      ML_BATCH_SIZE: ${ML_BATCH_SIZE:-32}
+      # Remove features from this list to disable their model and free VRAM.
+      ML_ENABLED_FEATURES: ${ML_ENABLED_FEATURES:-clip_embedding,dino_embedding,caption,faces,objects,aesthetic_score}
+    volumes:
+      - ml_models:/models
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+
+volumes:
+  ml_models:

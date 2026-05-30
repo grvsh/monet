@@ -104,6 +104,9 @@ export interface ScanJobResponse {
   files_deleted: number
   files_skipped: number
   files_failed: number
+  ml_files_pending: number
+  ml_files_done: number
+  ml_files_failed: number
   error_message: string | null
   started_at: string
   completed_at: string | null

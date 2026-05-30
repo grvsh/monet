@@ -381,6 +381,16 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                 media_file.height = h
             media_file.processed_at = datetime.now(timezone.utc)
 
+            # Enqueue ML analysis now that the preview exists on disk.
+            arq = ctx.get("redis")
+            if arq and settings.monet_ml_service_url:
+                await arq.enqueue_job(
+                    "ml_analyze_file",
+                    str(file_id),
+                    scan_job_id_str,
+                    _queue_name="arq:ml-queue",
+                )
+
 
 async def geocode_missing(ctx: dict) -> None:
     """ARQ task: reverse-geocode all GPS-tagged files that have no location yet."""

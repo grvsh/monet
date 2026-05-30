@@ -84,6 +84,21 @@ services:
       # - /path/to/your/photos:/path/to/your/photos:ro
     command: python -m arq app.workers.worker.AssetWorkerSettings
 
+  # ML analysis worker — CPU only, calls the ml-service over HTTP.
+  # Set MONET_ML_SERVICE_URL in .env to enable. Leave empty to disable.
+  ml-worker:
+    image: ghcr.io/grvsh/monet-backend:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache:ro
+    command: python -m arq app.workers.ml_worker.MLWorkerSettings
+
 volumes:
   pgdata:
   redisdata:

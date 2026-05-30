@@ -13,6 +13,10 @@ export interface ProcessingStatusResponse {
   pending: number
   failed: number
   failed_files: FailedFileInfo[]
+  ml_total: number
+  ml_done: number
+  ml_pending: number
+  ml_failed: number
 }
 
 interface ScanTriggerResponse {

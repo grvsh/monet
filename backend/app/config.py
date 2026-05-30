@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     monet_file_settle_seconds: int = 2
     monet_cors_origins: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 
+    # ── ML service ─────────────────────────────────────────────────────────────
+    # URL of the monet-ml FastAPI service. Leave empty to disable ML features.
+    monet_ml_service_url: str = ""
+    # Bearer token sent to the ML service. Leave empty when running on an
+    # isolated Docker network where no auth is needed.
+    monet_ml_api_key: str = ""
+    # Images in each batch POST to /analyze (tune for VRAM vs latency).
+    monet_ml_batch_size: int = 32
+    # Longest side in pixels for the ML analysis image generated from the preview.
+    monet_ml_image_size: int = 768
+
     # ── Security ───────────────────────────────────────────────────────────────
     # Directories the admin may browse via /api/fs/browse. Defaults to common
     # NAS mount points. Set to a tighter list in production.

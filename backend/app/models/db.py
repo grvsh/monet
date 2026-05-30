@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -271,6 +272,17 @@ class MediaFile(Base):
     thumbnail_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preview_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # AI / ML features
+    clip_embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1024), nullable=True)
+    dino_embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
+    caption: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_objects: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    aesthetic_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Keys are feature names, values are model version strings used to produce them.
+    # Null means this file has never been through ML analysis.
+    ai_versions: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    ai_analyzed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
+
     # Lifecycle
     indexed_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ, nullable=False, server_default=text("now()")
@@ -291,12 +303,16 @@ class MediaFile(Base):
     metadata_entry: Mapped[Optional[FileMetadata]] = relationship(
         back_populates="media_file", cascade="all, delete-orphan", uselist=False
     )
+    face_detections: Mapped[list[FaceDetection]] = relationship(
+        back_populates="media_file", cascade="all, delete-orphan"
+    )
 
 
 class Album(Base):
     __tablename__ = "albums"
     __table_args__ = (
         Index("idx_albums_owner", "owner_id"),
+        Index("idx_albums_auto", "is_auto", postgresql_where=text("is_auto = true")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -310,6 +326,13 @@ class Album(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Auto-generated albums (events, best-of sets). is_auto=True albums are managed
+    # by the ML worker and may be recreated on rescan.
+    is_auto: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    # 'event' | 'best_of' | None
+    auto_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ, nullable=False, server_default=text("now()")
     )
@@ -425,6 +448,16 @@ class ScanJob(Base):
     pending_folders: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
+    # ML analysis progress — tracked separately from asset processing.
+    ml_files_pending: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    ml_files_done: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    ml_files_failed: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ, nullable=False, server_default=text("now()")
@@ -437,4 +470,67 @@ class ScanJob(Base):
     )
     trigger_user: Mapped[Optional[User]] = relationship(
         back_populates="triggered_scan_jobs", foreign_keys=[triggered_by]
+    )
+
+
+class Person(Base):
+    """A named identity built from clustered face embeddings."""
+    __tablename__ = "people"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cover_face_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("face_detections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMPTZ, nullable=False, server_default=text("now()")
+    )
+
+    # Relationships
+    faces: Mapped[list[FaceDetection]] = relationship(
+        back_populates="person",
+        foreign_keys="FaceDetection.person_id",
+    )
+
+
+class FaceDetection(Base):
+    """One detected face within a media file."""
+    __tablename__ = "face_detections"
+    __table_args__ = (
+        Index("idx_faces_file", "file_id"),
+        Index("idx_faces_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media_files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Bounding box in original image pixel coordinates: {x, y, w, h}
+    bbox: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(512), nullable=True)
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Assigned after clustering — null until a person identity is resolved.
+    person_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Relationships
+    media_file: Mapped[MediaFile] = relationship(back_populates="face_detections")
+    person: Mapped[Optional[Person]] = relationship(
+        back_populates="faces",
+        foreign_keys=[person_id],
     )

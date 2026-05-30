@@ -276,6 +276,9 @@ class ScanJobResponse(BaseModel):
     files_deleted: int
     files_skipped: int
     files_failed: int
+    ml_files_pending: int = 0
+    ml_files_done: int = 0
+    ml_files_failed: int = 0
     error_message: str | None
     started_at: datetime
     completed_at: datetime | None
@@ -297,6 +300,10 @@ class ProcessingStatusResponse(BaseModel):
     pending: int
     failed: int
     failed_files: list[FailedFileInfo]
+    ml_total: int = 0
+    ml_done: int = 0
+    ml_pending: int = 0
+    ml_failed: int = 0
 
 
 class ScanRequest(BaseModel):

@@ -19,6 +19,7 @@ interface ScanStatusBadge {
 function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const [scanPolling, setScanPolling] = useState(true)
   const [assetPolling, setAssetPolling] = useState(true)
+  const [mlPolling, setMlPolling] = useState(true)
   const [showFailures, setShowFailures] = useState(false)
 
   const { data: job } = useQuery<ScanJobResponse>({
@@ -27,34 +28,50 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
     refetchInterval: scanPolling ? 1000 : false,
   })
 
-  // Reset polling whenever a new scan job starts
+  // Reset all polling whenever a new scan job starts
   const jobId = job?.id
   useEffect(() => {
     setScanPolling(true)
     setAssetPolling(true)
+    setMlPolling(true)
   }, [jobId])
 
   const { data: processing } = useQuery<ProcessingStatusResponse>({
     queryKey: ['processing-status', rootFolderId],
     queryFn: () => getProcessingStatus(rootFolderId),
-    refetchInterval: assetPolling ? 2000 : false,
+    refetchInterval: (assetPolling || mlPolling) ? 2000 : false,
   })
 
   const scanDone = job?.status === 'completed' || job?.status === 'failed'
   const assetsDone = processing != null && processing.total > 0 && processing.pending === 0
-  const fullyDone = scanDone && assetsDone
+  const mlTotal = processing?.ml_total ?? 0
+  const mlDone = processing?.ml_done ?? 0
+  const mlPending = processing?.ml_pending ?? 0
+  const mlActive = mlTotal > 0
+  const mlDoneAll = mlActive && mlPending === 0
+  const fullyDone = scanDone && assetsDone && (!mlActive || mlDoneAll)
 
   useEffect(() => { if (scanDone) setScanPolling(false) }, [scanDone])
   useEffect(() => { if (assetsDone) setAssetPolling(false) }, [assetsDone])
+  useEffect(() => { if (mlDoneAll) setMlPolling(false) }, [mlDoneAll])
 
   if (!job) return null
 
   const isRunning = job.status === 'running'
   const isQueued = isRunning && job.folders_scanned === 0 && job.files_found === 0
   const assetsRunning = (processing?.total ?? 0) > 0 && !assetsDone
+  const mlRunning = mlActive && !mlDoneAll
 
-  const badgeVariant = isQueued ? 'neutral' : isRunning || assetsRunning ? 'blue' : job.status === 'failed' ? 'red' : 'green'
-  const badgeLabel = isQueued ? 'queued' : isRunning ? 'scanning' : assetsRunning ? 'processing' : job.status === 'failed' ? 'failed' : 'completed'
+  const badgeVariant = isQueued ? 'neutral'
+    : isRunning || assetsRunning || mlRunning ? 'blue'
+    : job.status === 'failed' ? 'red'
+    : 'green'
+  const badgeLabel = isQueued ? 'queued'
+    : isRunning ? 'scanning'
+    : assetsRunning ? 'processing'
+    : mlRunning ? 'analysing'
+    : job.status === 'failed' ? 'failed'
+    : 'completed'
 
   const folderFound = Math.max(job.folders_found, job.folders_scanned)
   const assetTotal = processing?.total ?? 0
@@ -66,7 +83,7 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
 
       {/* Status line */}
       <div className="flex items-center gap-2">
-        {(isRunning || assetsRunning) && !isQueued && <Spinner size="sm" />}
+        {(isRunning || assetsRunning || mlRunning) && !isQueued && <Spinner size="sm" />}
         <Badge variant={badgeVariant}>{badgeLabel}</Badge>
         {fullyDone && (
           <span className="text-neutral-500">Completed {formatDateTime(job.completed_at)}</span>
@@ -95,6 +112,21 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
               {showFailures ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
               Failed {failedFiles.length.toLocaleString()}
             </button>
+          )}
+        </div>
+      )}
+
+      {/* ML analysis counters — only shown when an ML service is connected */}
+      {mlActive && (
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-neutral-500">
+          <span>
+            AI analysis{' '}
+            <span className="text-neutral-300">{mlDone.toLocaleString()}/{mlTotal.toLocaleString()}</span>
+          </span>
+          {(processing?.ml_failed ?? 0) > 0 && (
+            <span className="text-red-400">
+              Failed {(processing?.ml_failed ?? 0).toLocaleString()}
+            </span>
           )}
         </div>
       )}

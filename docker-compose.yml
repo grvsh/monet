@@ -67,8 +67,8 @@ services:
       - .env
     volumes:
       - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
-      - /path/to/example-images:/path/to/example-images:ro
-      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
+      - /path/to/example-images:/path/to/example-images
+      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
@@ -119,6 +119,35 @@ services:
       - /path/to/example-images:/path/to/example-images:ro
       - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
     command: python -m arq app.workers.worker.AssetWorkerSettings
+
+  # ML analysis worker — CPU only, calls the ml-service over HTTP.
+  # Disabled when MONET_ML_SERVICE_URL is empty (default).
+  ml-worker:
+    build:
+      context: ./backend
+      target: production
+    image: ghcr.io/grvsh/monet-backend:latest
+    restart: unless-stopped
+    user: "1000:1006"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://monet:${POSTGRES_PASSWORD}@db:5432/monet
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MONET_CACHE_DIR: /var/monet/cache
+      MONET_ML_SERVICE_URL: ${MONET_ML_SERVICE_URL:-}
+      MONET_ML_API_KEY: ${MONET_ML_API_KEY:-}
+      MONET_ML_BATCH_SIZE: ${MONET_ML_BATCH_SIZE:-32}
+      MONET_ML_IMAGE_SIZE: ${MONET_ML_IMAGE_SIZE:-768}
+    env_file:
+      - .env
+    volumes:
+      # Read-only: ml-worker reads preview images to resize and send to the ML service
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache:ro
+    command: python -m arq app.workers.ml_worker.MLWorkerSettings
 
 volumes:
   pgdata:

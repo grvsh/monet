@@ -156,7 +156,7 @@ async def processing_status(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ProcessingStatusResponse:
-    """Return processed vs total file counts and failed file details for a root folder."""
+    """Return asset processing and ML analysis progress for a root folder."""
     total_result = await session.execute(
         select(func.count()).where(
             MediaFile.root_folder_id == root_folder_id,
@@ -187,10 +187,27 @@ async def processing_status(
         for row in failed_rows
     ]
 
+    # ML counters come from the latest scan job for this root folder.
+    ml_job_result = await session.execute(
+        select(ScanJob)
+        .where(ScanJob.root_folder_id == root_folder_id)
+        .order_by(ScanJob.started_at.desc())
+        .limit(1)
+    )
+    latest_job = ml_job_result.scalar_one_or_none()
+    ml_pending = latest_job.ml_files_pending if latest_job else 0
+    ml_done = latest_job.ml_files_done if latest_job else 0
+    ml_failed = latest_job.ml_files_failed if latest_job else 0
+    ml_total = ml_pending + ml_done + ml_failed
+
     return ProcessingStatusResponse(
         total=total,
         processed=processed,
         pending=total - processed,
         failed=len(failed_files),
         failed_files=failed_files,
+        ml_total=ml_total,
+        ml_done=ml_done,
+        ml_pending=ml_pending,
+        ml_failed=ml_failed,
     )
