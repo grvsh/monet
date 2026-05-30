@@ -19,8 +19,9 @@ dependencies = [
     # OpenCLIP: ViT-H-14 for CLIP embeddings
     "open-clip-torch>=2.26",
     "timm>=1.0",
-    # HuggingFace Transformers: DINOv2 + Moondream2
-    "transformers>=4.46",
+    # HuggingFace Transformers: DINOv2 + Moondream2.
+    # Cap at <5.0 — transformers 5.x broke moondream2's custom class (all_tied_weights_keys).
+    "transformers>=4.46,<5.0",
     "accelerate>=1.0",
     # Face detection + recognition
     "insightface>=0.7",

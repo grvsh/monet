@@ -113,7 +113,7 @@ def _load_clip_h14(m: Models) -> None:
 
 
 def _load_aesthetic(m: Models) -> None:
-    """Load CLIP ViT-L-14 and the LAION aesthetic predictor linear head."""
+    """Load CLIP ViT-L-14 and the LAION aesthetic predictor MLP."""
     try:
         import open_clip
         import torch.nn as nn
@@ -135,13 +135,25 @@ def _load_aesthetic(m: Models) -> None:
             filename="pytorch_model.bin",
             cache_dir=f"{settings.model_cache_dir}/hf",
         )
-        # The predictor is a single linear layer: Linear(768, 1)
-        aesthetic_head = nn.Linear(768, 1)
-        state = torch.load(weights_path, map_location=DEVICE, weights_only=True)
-        aesthetic_head.load_state_dict(state)
-        aesthetic_head.eval()
-        aesthetic_head.to(DEVICE)
-        m.aesthetic_model = aesthetic_head
+        # The model is an MLP: 768→1024→128→64→16→1 with Dropout layers in between.
+        # The state dict also carries 'visual_projection' from the CLIP scaffold — ignore it.
+        aesthetic_mlp = nn.Sequential(
+            nn.Linear(768, 1024),
+            nn.Dropout(0.2),
+            nn.Linear(1024, 128),
+            nn.Dropout(0.2),
+            nn.Linear(128, 64),
+            nn.Dropout(0.1),
+            nn.Linear(64, 16),
+            nn.Linear(16, 1),
+        )
+        full_state = torch.load(weights_path, map_location=DEVICE, weights_only=True)
+        # Extract only the 'layers.*' keys that belong to the MLP.
+        mlp_state = {k[len("layers."):]: v for k, v in full_state.items() if k.startswith("layers.")}
+        aesthetic_mlp.load_state_dict(mlp_state)
+        aesthetic_mlp.eval()
+        aesthetic_mlp.to(DEVICE)
+        m.aesthetic_model = aesthetic_mlp
         m.loaded.add("aesthetic_score")
         logger.info("Aesthetic predictor ready")
     except Exception:
@@ -150,10 +162,10 @@ def _load_aesthetic(m: Models) -> None:
 
 def _load_dino(m: Models) -> None:
     try:
-        from transformers import AutoFeatureExtractor, AutoModel
+        from transformers import AutoImageProcessor, AutoModel
 
         logger.info("Loading DINOv2-giant...")
-        m.dino_processor = AutoFeatureExtractor.from_pretrained(
+        m.dino_processor = AutoImageProcessor.from_pretrained(
             "facebook/dinov2-giant",
             cache_dir=f"{settings.model_cache_dir}/hf",
         )
@@ -174,17 +186,16 @@ def _load_moondream(m: Models) -> None:
         logger.info("Loading Moondream2...")
         m.caption_tokenizer = AutoTokenizer.from_pretrained(
             "vikhyatk/moondream2",
-            revision="2024-08-06",
             cache_dir=f"{settings.model_cache_dir}/hf",
         )
+        # Avoid device_map — moondream2's custom model class doesn't implement
+        # all_tied_weights_keys, which newer transformers requires when device_map is set.
         m.caption_model = AutoModelForCausalLM.from_pretrained(
             "vikhyatk/moondream2",
-            revision="2024-08-06",
             trust_remote_code=True,
             cache_dir=f"{settings.model_cache_dir}/hf",
             torch_dtype=torch.float16,
-            device_map={"": DEVICE},
-        ).eval()
+        ).to(DEVICE).eval()
         m.loaded.add("caption")
         logger.info("Moondream2 ready")
     except Exception:
