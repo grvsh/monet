@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -38,6 +39,9 @@ async def ml_startup(ctx: dict) -> None:
         ctx["ml_manifest"] = await _fetch_manifest()
         if ctx["ml_manifest"]:
             logger.info("ML service ready, features: %s", list(ctx["ml_manifest"].keys()))
+            # Publish manifest to Redis so scan_folder can check feature staleness
+            # without needing to call the ML service directly.
+            await ctx["redis"].set("ml:manifest", json.dumps(ctx["ml_manifest"]))
         else:
             logger.warning("ML service unreachable at startup; will retry per batch")
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
@@ -17,6 +18,16 @@ from app.services.indexer import get_or_create_folder
 from app.services.media import get_media_type, is_raw, thumbnail_cache_path, preview_cache_path
 from app.services.metadata import extract_metadata as _extract_metadata, parse_denormalized
 from app.services.processor import generate_thumbnail_and_preview
+
+
+def _ml_features_stale(ai_versions: dict | None, manifest: dict) -> bool:
+    """Return True if any ML feature is missing or was produced by an older model version."""
+    if not ai_versions:
+        return True
+    return any(
+        ai_versions.get(feature) != meta["version"]
+        for feature, meta in manifest.items()
+    )
 
 
 async def scan_folder(
@@ -94,7 +105,18 @@ async def scan_folder(
 
                 arq = ctx.get("redis")
                 needs_processing_ids: list[uuid.UUID] = []
+                needs_ml_ids: list[uuid.UUID] = []
                 new_file_rows: list[dict] = []
+
+                # Fetch the ML manifest once per scan_folder call so we can
+                # detect stale/missing ML features on already-processed files.
+                # Published to Redis by the ml-worker on startup; None when ML
+                # is not configured or the ml-worker hasn't started yet.
+                ml_manifest: dict | None = None
+                if settings.monet_ml_service_url and arq:
+                    raw = await arq.get("ml:manifest")
+                    if raw:
+                        ml_manifest = json.loads(raw)
 
                 for entry in file_entries:
                     ext = Path(entry.path).suffix.lower().lstrip(".")
@@ -113,6 +135,11 @@ async def scan_folder(
                         if existing.processed_at is not None:
                             files_found += 1
                             files_skipped += 1
+                            # Even though thumbnails are current, ML features may be
+                            # missing (first scan after ML was added) or stale (model
+                            # version changed). Check manifest and re-enqueue if needed.
+                            if ml_manifest and _ml_features_stale(existing.ai_versions, ml_manifest):
+                                needs_ml_ids.append(existing.id)
                         else:
                             files_found += 1
                             needs_processing_ids.append(existing.id)
@@ -182,6 +209,16 @@ async def scan_folder(
                             str(file_id),
                             scan_job_id_str,
                             _queue_name="arq:asset-queue",
+                        )
+                    # ML-only enqueue for files whose thumbnails are current but
+                    # whose ML features are missing or stale (e.g. existing library
+                    # on first ML-enabled scan, or after a model version upgrade).
+                    for file_id in needs_ml_ids:
+                        await arq.enqueue_job(
+                            "ml_analyze_file",
+                            str(file_id),
+                            scan_job_id_str,
+                            _queue_name="arq:ml-queue",
                         )
 
                 now = datetime.now(timezone.utc)
