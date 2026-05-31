@@ -90,34 +90,39 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   return (
     <div className="mt-2 rounded border border-neutral-700 bg-neutral-800/50 px-3 py-2.5 text-xs space-y-1.5">
 
-      {/* Status + completion timestamp on one line */}
-      <div className="flex items-center gap-2">
+      {/* Status + scan counters on one line */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
         {(isRunning || assetsRunning || mlRunning || captionActive) && !isQueued && <Spinner size="sm" />}
         <Badge variant={badgeVariant}>{badgeLabel}</Badge>
         {fullyDone && (
           <span className="text-neutral-500">Completed {formatDateTime(job.completed_at)}</span>
         )}
-      </div>
-
-      {/* All progress counters on a single line, pipe-separated groups */}
-      {(isRunning || scanDone) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-neutral-500">
-          {/* Scan */}
-          <span>
-            Folders <span className="text-neutral-300">{job.folders_scanned.toLocaleString()}/{folderFound.toLocaleString()}</span>
+        {(isRunning || scanDone) && <>
+          <span className="text-neutral-700">·</span>
+          <span className="text-neutral-500">
+            Folders{' '}
+            <span className="text-neutral-300">{job.folders_scanned.toLocaleString()} done</span>
+            {isRunning && <span className="text-neutral-500"> · {(folderFound - job.folders_scanned).toLocaleString()} left</span>}
           </span>
           <span className="text-neutral-700">·</span>
-          <span>
+          <span className="text-neutral-500">
             Files <span className="text-neutral-300">{job.files_found.toLocaleString()}</span>
             {job.files_new > 0 && <span className="text-neutral-400"> (+{job.files_new.toLocaleString()} new)</span>}
             {job.files_deleted > 0 && <span className="text-neutral-400"> (−{job.files_deleted.toLocaleString()})</span>}
           </span>
+        </>}
+      </div>
+
+      {/* Ingested / AI / Caption counters */}
+      {(isRunning || scanDone) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-neutral-500">
 
           {/* Asset processing (ingested = thumbnails + previews done) */}
           {assetTotal > 0 && <>
-            <span className="text-neutral-700">·</span>
             <span>
-              Ingested <span className="text-neutral-300">{assetProcessed.toLocaleString()}/{assetTotal.toLocaleString()}</span>
+              Ingested{' '}
+              <span className="text-neutral-300">{assetProcessed.toLocaleString()} done</span>
+              {!assetsDone && <span className="text-neutral-500"> · {(processing?.pending ?? 0).toLocaleString()} left</span>}
             </span>
           </>}
 
@@ -125,7 +130,9 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
           {mlActive && <>
             <span className="text-neutral-700">·</span>
             <span>
-              AI <span className="text-neutral-300">{mlDone.toLocaleString()}/{mlTotal.toLocaleString()}</span>
+              AI{' '}
+              <span className="text-neutral-300">{mlDone.toLocaleString()} done</span>
+              {mlRunning && <span className="text-neutral-500"> · {mlPending.toLocaleString()} left</span>}
             </span>
           </>}
 
