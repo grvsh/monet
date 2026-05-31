@@ -74,7 +74,7 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const badgeLabel = isQueued ? 'queued'
     : isRunning ? 'scanning'
     : assetsRunning ? 'processing'
-    : mlRunning ? 'analysing'
+    : mlRunning ? 'analyzing'
     : captionActive ? 'captioning'
     : job.status === 'failed' ? 'failed'
     : 'completed'
@@ -85,70 +85,70 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const failedFiles = processing?.failed_files ?? []
 
   return (
-    <div className="mt-2 rounded border border-neutral-700 bg-neutral-800/50 px-3 py-2.5 text-xs space-y-2">
+    <div className="mt-2 rounded border border-neutral-700 bg-neutral-800/50 px-3 py-2.5 text-xs space-y-1.5">
 
-      {/* Status line */}
+      {/* Status + completion timestamp on one line */}
       <div className="flex items-center gap-2">
-        {(isRunning || assetsRunning || mlRunning) && !isQueued && <Spinner size="sm" />}
+        {(isRunning || assetsRunning || mlRunning || captionActive) && !isQueued && <Spinner size="sm" />}
         <Badge variant={badgeVariant}>{badgeLabel}</Badge>
         {fullyDone && (
           <span className="text-neutral-500">Completed {formatDateTime(job.completed_at)}</span>
         )}
       </div>
 
-      {/* Scan counters */}
+      {/* All progress counters on a single line, pipe-separated groups */}
       {(isRunning || scanDone) && (
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-neutral-500">
-          <span>Folders <span className="text-neutral-300">{job.folders_scanned.toLocaleString()}/{folderFound.toLocaleString()}</span></span>
-          <span>Files <span className="text-neutral-300">{job.files_found.toLocaleString()}</span></span>
-          {job.files_new > 0 && <span>New <span className="text-neutral-300">{job.files_new.toLocaleString()}</span></span>}
-          {job.files_deleted > 0 && <span>Removed <span className="text-neutral-300">{job.files_deleted.toLocaleString()}</span></span>}
-        </div>
-      )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-neutral-500">
+          {/* Scan */}
+          <span>
+            Folders <span className="text-neutral-300">{job.folders_scanned.toLocaleString()}/{folderFound.toLocaleString()}</span>
+          </span>
+          <span className="text-neutral-700">·</span>
+          <span>
+            Files <span className="text-neutral-300">{job.files_found.toLocaleString()}</span>
+            {job.files_new > 0 && <span className="text-neutral-400"> (+{job.files_new.toLocaleString()} new)</span>}
+            {job.files_deleted > 0 && <span className="text-neutral-400"> (−{job.files_deleted.toLocaleString()})</span>}
+          </span>
 
-      {/* Asset processing counters */}
-      {assetTotal > 0 && (
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-neutral-500">
-          <span>Processed <span className="text-neutral-300">{assetProcessed.toLocaleString()}/{assetTotal.toLocaleString()}</span></span>
-          {failedFiles.length > 0 && (
+          {/* Asset processing */}
+          {assetTotal > 0 && <>
+            <span className="text-neutral-700">·</span>
+            <span>
+              Processed <span className="text-neutral-300">{assetProcessed.toLocaleString()}/{assetTotal.toLocaleString()}</span>
+            </span>
+          </>}
+
+          {/* AI analysis */}
+          {mlActive && <>
+            <span className="text-neutral-700">·</span>
+            <span>
+              AI <span className="text-neutral-300">{mlDone.toLocaleString()}/{mlTotal.toLocaleString()}</span>
+            </span>
+          </>}
+
+          {/* Captions */}
+          {captionActive && <>
+            <span className="text-neutral-700">·</span>
+            <span>
+              Captions <span className="text-neutral-300">{captionPending.toLocaleString()} left</span>
+            </span>
+          </>}
+
+          {/* Failures */}
+          {(failedFiles.length > 0 || (processing?.ml_failed ?? 0) > 0) && <>
+            <span className="text-neutral-700">·</span>
             <button
               className="flex items-center gap-1 text-red-400 hover:text-red-300"
               onClick={() => setShowFailures(v => !v)}
             >
               {showFailures ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              Failed {failedFiles.length.toLocaleString()}
+              {failedFiles.length + (processing?.ml_failed ?? 0)} failed
             </button>
-          )}
+          </>}
         </div>
       )}
 
-      {/* ML analysis counters — only shown when an ML service is connected */}
-      {mlActive && (
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-neutral-500">
-          <span>
-            AI analysis{' '}
-            <span className="text-neutral-300">{mlDone.toLocaleString()}/{mlTotal.toLocaleString()}</span>
-          </span>
-          {(processing?.ml_failed ?? 0) > 0 && (
-            <span className="text-red-400">
-              Failed {(processing?.ml_failed ?? 0).toLocaleString()}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Caption queue — shown while captions are pending (slow background pass) */}
-      {captionActive && (
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-neutral-500">
-          <span>
-            Captions{' '}
-            <span className="text-neutral-300">{captionPending.toLocaleString()} queued</span>
-            <span className="text-neutral-600 ml-1">· running in background</span>
-          </span>
-        </div>
-      )}
-
-      {/* Failed file list */}
+      {/* Failed file list (expandable) */}
       {showFailures && failedFiles.length > 0 && (
         <div className="rounded border border-red-900/40 bg-red-950/20 p-2 space-y-1 max-h-40 overflow-y-auto">
           {failedFiles.map(f => (
