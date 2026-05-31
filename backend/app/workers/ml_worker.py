@@ -237,7 +237,7 @@ async def _process_batch(raw_items: list[str], manifest: dict) -> None:
 
     # POST to ML service
     try:
-        async with httpx.AsyncClient(timeout=300) as client:
+        async with httpx.AsyncClient(timeout=1800) as client:
             resp = await client.post(
                 f"{settings.monet_ml_service_url}/analyze",
                 files=files_payload,
@@ -355,16 +355,16 @@ async def _update_scan_counter(
 
 
 class MLWorkerSettings:
-    """ML worker — stages files for batch ML analysis and flushes batches every 10s."""
+    """ML worker — stages files for batch ML analysis and flushes batches every 30s."""
 
     functions = [ml_analyze_file, ml_flush_batch]
     cron_jobs = [
-        cron(ml_flush_batch, second={0, 10, 20, 30, 40, 50}),
+        cron(ml_flush_batch, second={0, 30}),
     ]
     on_startup = ml_startup
     on_shutdown = ml_shutdown
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 16
-    job_timeout = 300
+    job_timeout = 1800
     keep_result = 3600
     queue_name = "arq:ml-queue"
