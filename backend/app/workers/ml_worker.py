@@ -150,29 +150,39 @@ async def ml_flush_batch(ctx: dict) -> None:
     if not ctx.get("ml_configured"):
         return
 
-    # Re-fetch manifest if not loaded yet (ML service may have been down at startup)
-    if ctx.get("ml_manifest") is None:
-        ctx["ml_manifest"] = await _fetch_manifest()
-        if ctx["ml_manifest"] is None:
-            return
-
-    manifest: dict = ctx["ml_manifest"]
-    batch_size = settings.monet_ml_batch_size
     redis = ctx["redis"]
 
-    while True:
-        # Pop up to batch_size items from the staging list
-        pipe = redis.pipeline()
-        for _ in range(batch_size):
-            pipe.lpop(_STAGING_KEY)
-        raw_items = await pipe.execute()
-        items = [
-            r.decode() if isinstance(r, bytes) else r
-            for r in raw_items if r is not None
-        ]
-        if not items:
-            break
-        await _process_batch(items, manifest)
+    # Ensure only one flush runs at a time regardless of how many cron triggers
+    # have piled up. All concurrent/stale triggers become instant no-ops.
+    lock_acquired = await redis.set("ml:flush_lock", "1", nx=True, ex=1800)
+    if not lock_acquired:
+        return
+
+    try:
+        # Re-fetch manifest if not loaded yet (ML service may have been down at startup)
+        if ctx.get("ml_manifest") is None:
+            ctx["ml_manifest"] = await _fetch_manifest()
+            if ctx["ml_manifest"] is None:
+                return
+
+        manifest: dict = ctx["ml_manifest"]
+        batch_size = settings.monet_ml_batch_size
+
+        while True:
+            # Pop up to batch_size items from the staging list
+            pipe = redis.pipeline()
+            for _ in range(batch_size):
+                pipe.lpop(_STAGING_KEY)
+            raw_items = await pipe.execute()
+            items = [
+                r.decode() if isinstance(r, bytes) else r
+                for r in raw_items if r is not None
+            ]
+            if not items:
+                break
+            await _process_batch(items, manifest)
+    finally:
+        await redis.delete("ml:flush_lock")
 
 
 async def _process_batch(raw_items: list[str], manifest: dict) -> None:
