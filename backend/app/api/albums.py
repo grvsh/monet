@@ -19,37 +19,10 @@ from app.models.schemas import (
     PaginatedFiles,
     RenameAlbumRequest,
 )
+from app.api.utils import file_to_response
 
 router = APIRouter()
 
-
-def _file_to_response(f: MediaFile) -> FileResponse:
-    return FileResponse(
-        id=str(f.id),
-        folder_id=str(f.folder_id),
-        root_folder_id=str(f.root_folder_id),
-        filename=f.filename,
-        extension=f.extension,
-        media_type=f.media_type,
-        mime_type=f.mime_type,
-        is_raw=f.is_raw,
-        width=f.width,
-        height=f.height,
-        duration_sec=f.duration_sec,
-        taken_at=f.taken_at,
-        camera_make=f.camera_make,
-        camera_model=f.camera_model,
-        has_gps=f.gps_lat is not None,
-        has_thumbnail=f.thumbnail_path is not None,
-        has_preview=f.preview_path is not None,
-        size_bytes=f.size_bytes,
-        thumbnail_url=f"/api/thumbnails/{f.id}",
-        preview_url=f"/api/previews/{f.id}",
-        lens_model=f.lens_model,
-        location=f.location,
-        trashed_at=f.deleted_at,
-        missing_since=f.missing_since,
-    )
 
 
 async def _get_own_album(
@@ -204,7 +177,7 @@ async def list_album_files(
 
     pages = max(1, (total + page_size - 1) // page_size)
     return PaginatedFiles(
-        items=[_file_to_response(f) for f in files],
+        items=[file_to_response(f) for f in files],
         total=total,
         page=page,
         page_size=page_size,

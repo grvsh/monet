@@ -10,46 +10,20 @@ from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.auth import get_current_user
 from app.database import get_session
-from app.models.db import FileMetadata, Folder, MediaFile, RootFolder, User, UserRootPref
+from app.models.db import FaceDetection, FileMetadata, Folder, MediaFile, RootFolder, User, UserRootPref
 from app.models.schemas import FileDetailResponse, FileResponse, PaginatedFiles
 from app.services.media import preview_cache_path, thumbnail_cache_path
+from app.api.utils import file_to_response
 
 router = APIRouter()
 
 
-def _file_to_response(f: MediaFile) -> FileResponse:
-    return FileResponse(
-        id=f.id,
-        folder_id=f.folder_id,
-        root_folder_id=f.root_folder_id,
-        filename=f.filename,
-        extension=f.extension,
-        media_type=f.media_type,
-        mime_type=f.mime_type,
-        is_raw=f.is_raw,
-        width=f.width,
-        height=f.height,
-        duration_sec=f.duration_sec,
-        taken_at=f.taken_at,
-        camera_make=f.camera_make,
-        camera_model=f.camera_model,
-        has_gps=f.gps_lat is not None,
-        has_thumbnail=f.thumbnail_path is not None,
-        has_preview=f.preview_path is not None,
-        size_bytes=f.size_bytes,
-        thumbnail_url=f"/api/thumbnails/{f.id}",
-        preview_url=f"/api/previews/{f.id}",
-        lens_model=f.lens_model,
-        location=f.location,
-        trashed_at=f.deleted_at,
-        missing_since=f.missing_since,
-    )
 
 
 async def _get_user_visible_root_ids(user: User, session: AsyncSession) -> list[uuid.UUID]:
@@ -111,7 +85,7 @@ async def list_trash(
 
     pages = max(1, (total + page_size - 1) // page_size)
     return PaginatedFiles(
-        items=[_file_to_response(f) for f in files],
+        items=[file_to_response(f) for f in files],
         total=total,
         page=page,
         page_size=page_size,
@@ -292,6 +266,11 @@ async def get_file_detail(
     fm = meta_result.scalar_one_or_none()
     metadata_dict: dict | None = fm.data if fm else None
 
+    face_count_result = await session.execute(
+        select(func.count()).select_from(FaceDetection).where(FaceDetection.file_id == file_id)
+    )
+    face_count = face_count_result.scalar_one()
+
     return FileDetailResponse(
         id=media_file.id,
         folder_id=media_file.folder_id,
@@ -315,6 +294,7 @@ async def get_file_detail(
         preview_url=f"/api/previews/{media_file.id}",
         lens_model=media_file.lens_model,
         location=media_file.location,
+        caption=media_file.caption,
         trashed_at=media_file.deleted_at,
         missing_since=media_file.missing_since,
         path=media_file.path,
@@ -329,4 +309,10 @@ async def get_file_detail(
         indexed_at=media_file.indexed_at,
         processed_at=media_file.processed_at,
         metadata=metadata_dict,
+        face_count=face_count if face_count > 0 else None,
+        clip_embedding=media_file.clip_embedding is not None,
+        dino_embedding=media_file.dino_embedding is not None,
+        ai_analyzed_at=media_file.ai_analyzed_at,
+        ai_versions=media_file.ai_versions,
+        ml_error=media_file.ml_error,
     )

@@ -5,6 +5,7 @@ import { formatDate, formatDuration } from '../../lib/utils'
 import { Badge } from '../ui/Badge'
 import { cn } from '../../lib/utils'
 import { downloadFile } from '../../api/download'
+import { FileThumbnail } from './FileThumbnail'
 
 interface MediaTileProps {
   file: FileResponse
@@ -15,10 +16,6 @@ interface MediaTileProps {
   onSelect: (id: string, shiftKey: boolean) => void
 }
 
-function formatLensShort(lens: string): string {
-  const match = lens.match(/(\d+\.?\d*mm\s+f\/[\d.]+)/)
-  return match ? match[1] : lens
-}
 
 function DownloadMenu({ file, onClose }: { file: FileResponse; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -67,9 +64,6 @@ function DownloadMenu({ file, onClose }: { file: FileResponse; onClose: () => vo
 
 export default function MediaTile({ file, onClick, imageSize, selected, onSelect }: MediaTileProps) {
   const dateLabel = file.taken_at ? formatDate(file.taken_at) : null
-  const lensLabel = file.lens_model
-    ? formatLensShort(file.lens_model)
-    : file.camera_model ?? null
   const [showDownload, setShowDownload] = useState(false)
 
 
@@ -109,22 +103,20 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
               {file.filename}
             </span>
           </div>
-        ) : file.has_thumbnail ? (
-          <img
-            src={file.thumbnail_url}
-            alt={file.filename}
-            loading="lazy"
-            draggable={false}
-            className="w-full h-full object-cover rounded transition-transform duration-200 group-hover:scale-[1.02]"
-          />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-neutral-800 rounded">
-            {file.media_type === 'video' ? (
-              <Video size={32} className="text-neutral-500" />
-            ) : (
-              <ImageOff size={32} className="text-neutral-500" />
-            )}
-          </div>
+          <FileThumbnail
+            file={file}
+            imgClassName="w-full h-full object-cover rounded transition-transform duration-200 group-hover:scale-[1.02]"
+            fallback={
+              <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-neutral-800 rounded">
+                {file.media_type === 'video' ? (
+                  <Video size={32} className="text-neutral-500" />
+                ) : (
+                  <ImageOff size={32} className="text-neutral-500" />
+                )}
+              </div>
+            }
+          />
         )}
 
         {/* Checkbox — top-left.
@@ -199,16 +191,18 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
       </div>
       </div>{/* end outer relative wrapper */}
 
-      {/* Caption */}
+      {/* Below-image info */}
       <div className="px-0.5 pt-1 flex flex-col overflow-hidden">
         {dateLabel && (
           <p className="text-xs text-neutral-400 truncate leading-4">{dateLabel}</p>
         )}
-        {lensLabel && (
-          <p className="text-xs text-neutral-500 truncate leading-4">{lensLabel}</p>
-        )}
-        {file.location && (
-          <p className="text-xs text-neutral-500 truncate leading-4">{file.location}</p>
+        {file.caption && (
+          <p
+            className="text-xs text-neutral-500 truncate leading-4"
+            title={file.caption}
+          >
+            {file.caption}
+          </p>
         )}
       </div>
     </div>

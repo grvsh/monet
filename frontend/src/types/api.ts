@@ -54,6 +54,7 @@ export interface FileResponse {
   preview_url: string
   lens_model: string | null
   location: string | null
+  caption: string | null
   trashed_at: string | null
   missing_since: string | null
 }
@@ -71,6 +72,12 @@ export interface FileDetailResponse extends FileResponse {
   indexed_at: string
   processed_at: string | null
   metadata: Record<string, unknown> | null
+  face_count: number | null
+  clip_embedding: boolean
+  dino_embedding: boolean
+  ai_analyzed_at: string | null
+  ai_versions: Record<string, unknown> | null
+  ml_error: string | null
 }
 
 export interface PaginatedFiles {

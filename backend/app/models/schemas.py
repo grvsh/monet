@@ -189,6 +189,7 @@ class FileResponse(BaseModel):
     preview_url: str
     lens_model: str | None
     location: str | None
+    caption: str | None = None
     trashed_at: datetime | None = None
     missing_since: datetime | None = None
 
@@ -206,6 +207,12 @@ class FileDetailResponse(FileResponse):
     indexed_at: datetime
     processed_at: datetime | None
     metadata: dict | None
+    face_count: int | None = None
+    clip_embedding: bool = False
+    dino_embedding: bool = False
+    ai_analyzed_at: datetime | None = None
+    ai_versions: dict | None = None
+    ml_error: str | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -165,6 +165,43 @@ export default function MetadataPanel({ fileId }: MetadataPanelProps) {
         />
       )}
 
+      {(file.caption || file.face_count != null || file.clip_embedding || file.dino_embedding || file.ai_analyzed_at || file.ml_error) && (
+        <div className="border-b border-neutral-800 py-3 px-4">
+          <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">AI</h4>
+          {file.caption && (
+            <p className="text-sm text-neutral-200 mb-2 leading-snug">{file.caption}</p>
+          )}
+          <dl className="space-y-1.5">
+            {file.face_count != null && (
+              <div className="flex justify-between gap-3 text-sm">
+                <dt className="text-neutral-500 shrink-0">Faces</dt>
+                <dd className="text-neutral-200 text-right">{file.face_count}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-3 text-sm">
+              <dt className="text-neutral-500 shrink-0">CLIP features</dt>
+              <dd className="text-neutral-200 text-right">{file.clip_embedding ? 'Yes' : 'No'}</dd>
+            </div>
+            <div className="flex justify-between gap-3 text-sm">
+              <dt className="text-neutral-500 shrink-0">DINO features</dt>
+              <dd className="text-neutral-200 text-right">{file.dino_embedding ? 'Yes' : 'No'}</dd>
+            </div>
+            {file.ai_analyzed_at && (
+              <div className="flex justify-between gap-3 text-sm">
+                <dt className="text-neutral-500 shrink-0">Analyzed</dt>
+                <dd className="text-neutral-200 text-right">{formatDateTime(file.ai_analyzed_at)}</dd>
+              </div>
+            )}
+            {file.ml_error && (
+              <div className="flex justify-between gap-3 text-sm">
+                <dt className="text-neutral-500 shrink-0">Error</dt>
+                <dd className="text-red-400 text-right break-all">{file.ml_error}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
+
       <ExifSection metadata={file.metadata} />
     </div>
   )

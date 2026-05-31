@@ -5,6 +5,7 @@ import { listFolderTrashedFiles } from '../../api/folders'
 import { bulkRestoreFiles } from '../../api/files'
 import type { FileResponse } from '../../types/api'
 import { cn } from '../../lib/utils'
+import { FileThumbnail } from './FileThumbnail'
 
 const TRASH_DAYS = 30
 
@@ -32,19 +33,15 @@ function TrashedTile({ file, tileSize }: { file: FileResponse; tileSize: number 
         className="relative flex-shrink-0 overflow-hidden rounded opacity-50 group-hover:opacity-70 transition-opacity"
         style={{ height: tileSize }}
       >
-        {file.has_thumbnail ? (
-          <img
-            src={file.thumbnail_url}
-            alt={file.filename}
-            loading="lazy"
-            draggable={false}
-            className="w-full h-full object-cover grayscale"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-neutral-800">
-            <Trash2 size={20} className="text-neutral-600" />
-          </div>
-        )}
+        <FileThumbnail
+          file={file}
+          imgClassName="w-full h-full object-cover grayscale"
+          fallback={
+            <div className="w-full h-full flex items-center justify-center bg-neutral-800">
+              <Trash2 size={20} className="text-neutral-600" />
+            </div>
+          }
+        />
 
         {/* Restore button on hover */}
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">

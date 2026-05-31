@@ -6,6 +6,7 @@ import type { FileResponse } from '../../types/api'
 import { cn } from '../../lib/utils'
 import { Spinner } from '../ui/Spinner'
 import MediaLightbox from '../lightbox/MediaLightbox'
+import { FileThumbnail } from './FileThumbnail'
 
 const TRASH_DAYS = 30
 
@@ -32,18 +33,15 @@ function TrashTile({
     <div className={cn('group relative rounded overflow-hidden bg-neutral-800 flex flex-col', selected && 'ring-2 ring-blue-500')}>
       {/* Thumbnail */}
       <div className="relative w-full aspect-square cursor-pointer" onClick={onClickImage}>
-        {file.has_thumbnail ? (
-          <img
-            src={file.thumbnail_url}
-            alt={file.filename}
-            loading="lazy"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-neutral-800">
-            <Trash2 size={24} className="text-neutral-600" />
-          </div>
-        )}
+        <FileThumbnail
+          file={file}
+          imgClassName="w-full h-full object-cover"
+          fallback={
+            <div className="w-full h-full flex items-center justify-center bg-neutral-800">
+              <Trash2 size={24} className="text-neutral-600" />
+            </div>
+          }
+        />
         {/* Overlay on hover */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
           <span className="text-xs text-white font-medium px-2 text-center">{file.filename}</span>

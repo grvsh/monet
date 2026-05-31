@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, FileQuestion, Trash2, X } from 'lucide-react
 import { listFolderMissingFiles } from '../../api/folders'
 import { bulkTrashMissingFiles, bulkDismissMissingFiles } from '../../api/files'
 import type { FileResponse } from '../../types/api'
+import { FileThumbnail } from './FileThumbnail'
 
 function MissingTile({ file, tileSize }: { file: FileResponse; tileSize: number }) {
   const queryClient = useQueryClient()
@@ -34,19 +35,15 @@ function MissingTile({ file, tileSize }: { file: FileResponse; tileSize: number 
         className="relative flex-shrink-0 overflow-hidden rounded border-2 border-dashed border-amber-600/60 bg-neutral-800/60"
         style={{ height: tileSize }}
       >
-        {file.has_thumbnail ? (
-          <img
-            src={file.thumbnail_url}
-            alt={file.filename}
-            loading="lazy"
-            draggable={false}
-            className="w-full h-full object-cover opacity-30 grayscale"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <FileQuestion size={24} className="text-amber-600/60" />
-          </div>
-        )}
+        <FileThumbnail
+          file={file}
+          imgClassName="w-full h-full object-cover opacity-30 grayscale"
+          fallback={
+            <div className="w-full h-full flex items-center justify-center">
+              <FileQuestion size={24} className="text-amber-600/60" />
+            </div>
+          }
+        />
 
         {/* Action buttons on hover */}
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50">
