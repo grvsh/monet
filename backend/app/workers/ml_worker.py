@@ -165,8 +165,11 @@ async def ml_flush_batch(ctx: dict) -> None:
         pipe = redis.pipeline()
         for _ in range(batch_size):
             pipe.lpop(_STAGING_KEY)
-        raw_items: list[str | None] = await pipe.execute()
-        items = [r for r in raw_items if r is not None]
+        raw_items = await pipe.execute()
+        items = [
+            r.decode() if isinstance(r, bytes) else r
+            for r in raw_items if r is not None
+        ]
         if not items:
             break
         await _process_batch(items, manifest)

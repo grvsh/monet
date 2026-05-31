@@ -39,9 +39,12 @@ async def get_or_create_folder(
         select(Folder).where(
             Folder.root_folder_id == root_folder_id,
             Folder.path == relative_path,
-        )
+        ).limit(1)
     )
-    return result.scalar_one()
+    folder = result.scalars().first()
+    if folder is None:
+        raise RuntimeError(f"Folder not found after upsert: root={root_folder_id} path={relative_path!r}")
+    return folder
 
 
 async def upsert_media_file(
