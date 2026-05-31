@@ -131,9 +131,9 @@ async def get_folder_by_path(
         select(Folder).where(
             Folder.root_folder_id == root_folder_id,
             Folder.path == path,
-        )
+        ).limit(1)
     )
-    folder = result.scalar_one_or_none()
+    folder = result.scalars().first()
     if not folder:
         raise HTTPException(status_code=404, detail="Folder not found")
     return FolderResponse.model_validate(folder)
