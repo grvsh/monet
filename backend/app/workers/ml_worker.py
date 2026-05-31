@@ -280,33 +280,32 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
     if not ordered:
         return
 
-    # Separate fast features (batched GPU) from slow ones (caption: sequential LM).
-    # Files needing slow features are re-staged to a dedicated caption queue so
-    # the fast pass isn't blocked by 2s/image autoregressive generation.
-    caption_restage: list[tuple[uuid.UUID, uuid.UUID | None]] = []
-    fast_ordered: list[tuple[uuid.UUID, uuid.UUID | None, list[str], bytes | None]] = []
-    for file_id, scan_job_id, feats, img_bytes in ordered:
-        fast_feats = [f for f in feats if f not in _SLOW_FEATURES]
-        slow_feats = [f for f in feats if f in _SLOW_FEATURES]
-        if slow_feats:
-            caption_restage.append((file_id, scan_job_id))
-        if fast_feats:
-            fast_ordered.append((file_id, scan_job_id, fast_feats, img_bytes))
-        elif not fast_feats and slow_feats:
-            # Only caption needed — skip the fast pass entirely for this file
-            pass
+    # Split fast features (batched GPU) from slow ones (caption: sequential LM),
+    # but only when the manifest itself contains fast features. When called from
+    # ml_flush_caption the manifest is caption-only, so the split is skipped and
+    # captions are sent directly to the ML service.
+    has_fast_in_manifest = bool(set(manifest.keys()) - _SLOW_FEATURES)
 
-    # Push caption work to the slow queue (only when redis is available)
-    if caption_restage and redis is not None:
-        for file_id, scan_job_id in caption_restage:
-            await redis.rpush(_CAPTION_STAGING_KEY, f"{file_id}:{scan_job_id or ''}")
+    if has_fast_in_manifest:
+        caption_restage: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+        fast_ordered: list[tuple[uuid.UUID, uuid.UUID | None, list[str], bytes | None]] = []
+        for file_id, scan_job_id, feats, img_bytes in ordered:
+            fast_feats = [f for f in feats if f not in _SLOW_FEATURES]
+            slow_feats = [f for f in feats if f in _SLOW_FEATURES]
+            if slow_feats:
+                caption_restage.append((file_id, scan_job_id))
+            if fast_feats:
+                fast_ordered.append((file_id, scan_job_id, fast_feats, img_bytes))
 
-    # If no fast work remains after the split, nothing to POST
-    if not fast_ordered:
-        return
-    ordered = fast_ordered
+        if caption_restage and redis is not None:
+            for file_id, scan_job_id in caption_restage:
+                await redis.rpush(_CAPTION_STAGING_KEY, f"{file_id}:{scan_job_id or ''}")
 
-    # Union of all FAST features needed across the batch
+        if not fast_ordered:
+            return
+        ordered = fast_ordered
+
+    # Union of features needed across the batch
     all_features: list[str] = sorted({f for _, _, feats, _ in ordered for f in feats})
 
     # Build multipart payload
