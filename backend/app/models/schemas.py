@@ -304,6 +304,7 @@ class ProcessingStatusResponse(BaseModel):
     ml_done: int = 0
     ml_pending: int = 0
     ml_failed: int = 0
+    caption_pending: int = 0
 
 
 class ScanRequest(BaseModel):

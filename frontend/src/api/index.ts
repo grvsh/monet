@@ -17,6 +17,7 @@ export interface ProcessingStatusResponse {
   ml_done: number
   ml_pending: number
   ml_failed: number
+  caption_pending: number
 }
 
 interface ScanTriggerResponse {

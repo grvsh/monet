@@ -20,6 +20,7 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const [scanPolling, setScanPolling] = useState(true)
   const [assetPolling, setAssetPolling] = useState(true)
   const [mlPolling, setMlPolling] = useState(true)
+  const [captionPolling, setCaptionPolling] = useState(true)
   const [showFailures, setShowFailures] = useState(false)
 
   const { data: job } = useQuery<ScanJobResponse>({
@@ -34,12 +35,13 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
     setScanPolling(true)
     setAssetPolling(true)
     setMlPolling(true)
+    setCaptionPolling(true)
   }, [jobId])
 
   const { data: processing } = useQuery<ProcessingStatusResponse>({
     queryKey: ['processing-status', rootFolderId],
     queryFn: () => getProcessingStatus(rootFolderId),
-    refetchInterval: (assetPolling || mlPolling) ? 2000 : false,
+    refetchInterval: (assetPolling || mlPolling || captionPolling) ? 2000 : false,
   })
 
   const scanDone = job?.status === 'completed' || job?.status === 'failed'
@@ -49,11 +51,14 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const mlPending = processing?.ml_pending ?? 0
   const mlActive = mlTotal > 0
   const mlDoneAll = mlActive && mlPending === 0
-  const fullyDone = scanDone && assetsDone && (!mlActive || mlDoneAll)
+  const captionPending = processing?.caption_pending ?? 0
+  const captionActive = captionPending > 0
+  const fullyDone = scanDone && assetsDone && (!mlActive || mlDoneAll) && !captionActive
 
   useEffect(() => { if (scanDone) setScanPolling(false) }, [scanDone])
   useEffect(() => { if (assetsDone) setAssetPolling(false) }, [assetsDone])
   useEffect(() => { if (mlDoneAll) setMlPolling(false) }, [mlDoneAll])
+  useEffect(() => { if (!captionActive && processing != null) setCaptionPolling(false) }, [captionActive, processing])
 
   if (!job) return null
 
@@ -63,13 +68,14 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const mlRunning = mlActive && !mlDoneAll
 
   const badgeVariant = isQueued ? 'neutral'
-    : isRunning || assetsRunning || mlRunning ? 'blue'
+    : isRunning || assetsRunning || mlRunning || captionActive ? 'blue'
     : job.status === 'failed' ? 'red'
     : 'green'
   const badgeLabel = isQueued ? 'queued'
     : isRunning ? 'scanning'
     : assetsRunning ? 'processing'
     : mlRunning ? 'analysing'
+    : captionActive ? 'captioning'
     : job.status === 'failed' ? 'failed'
     : 'completed'
 
@@ -128,6 +134,17 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
               Failed {(processing?.ml_failed ?? 0).toLocaleString()}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Caption queue — shown while captions are pending (slow background pass) */}
+      {captionActive && (
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-neutral-500">
+          <span>
+            Captions{' '}
+            <span className="text-neutral-300">{captionPending.toLocaleString()} queued</span>
+            <span className="text-neutral-600 ml-1">· running in background</span>
+          </span>
         </div>
       )}
 

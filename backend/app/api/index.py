@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import get_current_user, require_admin
 from app.database import get_session
 from app.models.db import MediaFile, RootFolder, ScanJob, User
@@ -155,6 +156,7 @@ async def processing_status(
     root_folder_id: uuid.UUID,
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
+    redis=Depends(get_redis),
 ) -> ProcessingStatusResponse:
     """Return asset processing and ML analysis progress for a root folder."""
     total_result = await session.execute(
@@ -200,6 +202,12 @@ async def processing_status(
     ml_failed = latest_job.ml_files_failed if latest_job else 0
     ml_total = ml_pending + ml_done + ml_failed
 
+    # Caption queue depth — global Redis list, not per root folder.
+    # Show only when ML is configured (key won't exist otherwise).
+    caption_pending = 0
+    if settings.monet_ml_service_url:
+        caption_pending = await redis.llen("ml:caption_staging") or 0
+
     return ProcessingStatusResponse(
         total=total,
         processed=processed,
@@ -210,4 +218,5 @@ async def processing_status(
         ml_done=ml_done,
         ml_pending=ml_pending,
         ml_failed=ml_failed,
+        caption_pending=caption_pending,
     )
