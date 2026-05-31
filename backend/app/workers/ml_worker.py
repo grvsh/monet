@@ -192,7 +192,12 @@ async def ml_flush_batch(ctx: dict) -> None:
 
 
 async def ml_flush_caption(ctx: dict) -> None:
-    """Process one caption batch (slow, sequential LM). Runs every 5 minutes."""
+    """Process caption batches continuously until the queue is empty or time runs out.
+
+    Uses a time-budget loop so the GPU stays busy across multiple batches per job
+    instead of sitting idle between 5-minute cron fires. Each batch takes ~66s;
+    we run as many as fit within 540s (9s buffer before the 600s job timeout).
+    """
     if not ctx.get("ml_configured"):
         return
 
@@ -211,18 +216,23 @@ async def ml_flush_caption(ctx: dict) -> None:
         if "caption" not in manifest:
             return
 
+        caption_manifest = {"caption": manifest["caption"]}
         batch_size = settings.monet_ml_batch_size
-        pipe = redis.pipeline()
-        for _ in range(batch_size):
-            pipe.lpop(_CAPTION_STAGING_KEY)
-        raw_items = await pipe.execute()
-        items = [
-            r.decode() if isinstance(r, bytes) else r
-            for r in raw_items if r is not None
-        ]
-        if items:
-            # Build a caption-only manifest subset
-            caption_manifest = {"caption": manifest["caption"]}
+
+        import time
+        deadline = time.monotonic() + 540  # keep 60s buffer before job_timeout
+
+        while time.monotonic() < deadline:
+            pipe = redis.pipeline()
+            for _ in range(batch_size):
+                pipe.lpop(_CAPTION_STAGING_KEY)
+            raw_items = await pipe.execute()
+            items = [
+                r.decode() if isinstance(r, bytes) else r
+                for r in raw_items if r is not None
+            ]
+            if not items:
+                break
             await _process_batch(items, caption_manifest, redis=redis)
     finally:
         await redis.delete("ml:caption_lock")
@@ -439,7 +449,7 @@ class MLWorkerSettings:
     functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption]
     cron_jobs = [
         cron(ml_flush_batch, second={0, 30}),
-        cron(ml_flush_caption, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
+        cron(ml_flush_caption, second=0),  # every minute; lock prevents overlap
     ]
     on_startup = ml_startup
     on_shutdown = ml_shutdown

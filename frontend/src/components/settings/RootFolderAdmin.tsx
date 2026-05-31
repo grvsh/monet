@@ -134,16 +134,21 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
             </span>
           </>}
 
-          {/* Failures */}
-          {(failedFiles.length > 0 || (processing?.ml_failed ?? 0) > 0) && <>
+          {/* Asset failures — expandable because we have per-file details */}
+          {failedFiles.length > 0 && <>
             <span className="text-neutral-700">·</span>
             <button
               className="flex items-center gap-1 text-red-400 hover:text-red-300"
               onClick={() => setShowFailures(v => !v)}
             >
               {showFailures ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              {failedFiles.length + (processing?.ml_failed ?? 0)} failed
+              {failedFiles.length} failed
             </button>
+          </>}
+          {/* ML failures — count only, no per-file detail stored */}
+          {(processing?.ml_failed ?? 0) > 0 && <>
+            <span className="text-neutral-700">·</span>
+            <span className="text-red-400">{(processing?.ml_failed ?? 0).toLocaleString()} AI failed</span>
           </>}
         </div>
       )}
