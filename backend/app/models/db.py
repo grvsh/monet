@@ -289,6 +289,7 @@ class MediaFile(Base):
     )
     processed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ, nullable=True)
     processing_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ml_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

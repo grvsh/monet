@@ -202,6 +202,29 @@ async def processing_status(
     ml_failed = latest_job.ml_files_failed if latest_job else 0
     ml_total = ml_pending + ml_done + ml_failed
 
+    # Per-file ML failure details.
+    ml_failed_result = await session.execute(
+        select(MediaFile.id, MediaFile.path, MediaFile.ml_error).where(
+            MediaFile.root_folder_id == root_folder_id,
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.ml_error.isnot(None),
+        )
+    )
+    ml_failed_files = [
+        FailedFileInfo(id=row.id, path=row.path, error=row.ml_error)
+        for row in ml_failed_result.all()
+    ]
+
+    # Caption done — count of files with a caption written.
+    caption_done_result = await session.execute(
+        select(func.count()).where(
+            MediaFile.root_folder_id == root_folder_id,
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.caption.isnot(None),
+        )
+    )
+    caption_done = caption_done_result.scalar_one()
+
     # Caption queue depth — global Redis list, not per root folder.
     # Show only when ML is configured (key won't exist otherwise).
     caption_pending = 0
@@ -218,5 +241,7 @@ async def processing_status(
         ml_done=ml_done,
         ml_pending=ml_pending,
         ml_failed=ml_failed,
+        ml_failed_files=ml_failed_files,
         caption_pending=caption_pending,
+        caption_done=caption_done,
     )

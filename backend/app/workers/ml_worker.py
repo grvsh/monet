@@ -314,6 +314,7 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
     for file_id, scan_job_id, feats, img_bytes in ordered:
         if img_bytes is None:
             logger.warning("No preview for file %s, skipping ML analysis", file_id)
+            await _set_ml_file_error(file_id, "No preview image available")
             await _update_scan_counter(scan_job_id, failed=1, pending=-1)
             continue
         idx = len(files_payload)
@@ -334,9 +335,10 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
             )
             resp.raise_for_status()
             ml_results: list[dict] = resp.json()["results"]
-    except Exception:
+    except Exception as exc:
         logger.exception("ML service batch call failed (%d files)", len(files_payload))
-        for _, scan_job_id, _ in valid_ordered:
+        for file_id, scan_job_id, _ in valid_ordered:
+            await _set_ml_file_error(file_id, f"ML service request failed: {exc!s}"[:500])
             await _update_scan_counter(scan_job_id, failed=1, pending=-1)
         return
 
@@ -351,8 +353,9 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
                     if mf:
                         _apply_ml_result(mf, ml_result, manifest, feats, now, session)
             await _update_scan_counter(scan_job_id, done=1, pending=-1)
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to persist ML result for file %s", file_id)
+            await _set_ml_file_error(file_id, f"Failed to save ML result: {exc!s}"[:500])
             await _update_scan_counter(scan_job_id, failed=1, pending=-1)
 
 
@@ -412,6 +415,15 @@ def _apply_ml_result(
 
     mf.ai_versions = versions
     mf.ai_analyzed_at = now
+    mf.ml_error = None
+
+
+async def _set_ml_file_error(file_id: uuid.UUID, error: str) -> None:
+    async with async_session_factory() as s:
+        async with s.begin():
+            await s.execute(
+                update(MediaFile).where(MediaFile.id == file_id).values(ml_error=error[:500])
+            )
 
 
 async def _update_scan_counter(

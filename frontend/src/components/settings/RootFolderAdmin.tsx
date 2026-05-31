@@ -22,6 +22,7 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const [mlPolling, setMlPolling] = useState(true)
   const [captionPolling, setCaptionPolling] = useState(true)
   const [showFailures, setShowFailures] = useState(false)
+  const [showMlFailures, setShowMlFailures] = useState(false)
 
   const { data: job } = useQuery<ScanJobResponse>({
     queryKey: ['scan-status', rootFolderId],
@@ -83,6 +84,8 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
   const assetTotal = processing?.total ?? 0
   const assetProcessed = processing?.processed ?? 0
   const failedFiles = processing?.failed_files ?? []
+  const mlFailedFiles = processing?.ml_failed_files ?? []
+  const captionDone = processing?.caption_done ?? 0
 
   return (
     <div className="mt-2 rounded border border-neutral-700 bg-neutral-800/50 px-3 py-2.5 text-xs space-y-1.5">
@@ -110,11 +113,11 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
             {job.files_deleted > 0 && <span className="text-neutral-400"> (−{job.files_deleted.toLocaleString()})</span>}
           </span>
 
-          {/* Asset processing */}
+          {/* Asset processing (ingested = thumbnails + previews done) */}
           {assetTotal > 0 && <>
             <span className="text-neutral-700">·</span>
             <span>
-              Processed <span className="text-neutral-300">{assetProcessed.toLocaleString()}/{assetTotal.toLocaleString()}</span>
+              Ingested <span className="text-neutral-300">{assetProcessed.toLocaleString()}/{assetTotal.toLocaleString()}</span>
             </span>
           </>}
 
@@ -127,14 +130,16 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
           </>}
 
           {/* Captions */}
-          {captionActive && <>
+          {(captionDone > 0 || captionActive) && <>
             <span className="text-neutral-700">·</span>
             <span>
-              Captions <span className="text-neutral-300">{captionPending.toLocaleString()} left</span>
+              Captions{' '}
+              <span className="text-neutral-300">{captionDone.toLocaleString()} done</span>
+              {captionActive && <span className="text-neutral-500"> · {captionPending.toLocaleString()} left</span>}
             </span>
           </>}
 
-          {/* Asset failures — expandable because we have per-file details */}
+          {/* Asset failures — expandable with per-file details */}
           {failedFiles.length > 0 && <>
             <span className="text-neutral-700">·</span>
             <button
@@ -142,21 +147,40 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
               onClick={() => setShowFailures(v => !v)}
             >
               {showFailures ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              {failedFiles.length} failed
+              {failedFiles.length} ingest failed
             </button>
           </>}
-          {/* ML failures — count only, no per-file detail stored */}
-          {(processing?.ml_failed ?? 0) > 0 && <>
+
+          {/* ML failures — expandable with per-file details */}
+          {mlFailedFiles.length > 0 && <>
             <span className="text-neutral-700">·</span>
-            <span className="text-red-400">{(processing?.ml_failed ?? 0).toLocaleString()} AI failed</span>
+            <button
+              className="flex items-center gap-1 text-red-400 hover:text-red-300"
+              onClick={() => setShowMlFailures(v => !v)}
+            >
+              {showMlFailures ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              {mlFailedFiles.length} AI failed
+            </button>
           </>}
         </div>
       )}
 
-      {/* Failed file list (expandable) */}
+      {/* Ingest failed file list (expandable) */}
       {showFailures && failedFiles.length > 0 && (
         <div className="rounded border border-red-900/40 bg-red-950/20 p-2 space-y-1 max-h-40 overflow-y-auto">
           {failedFiles.map(f => (
+            <div key={f.id} className="space-y-0.5">
+              <p className="font-mono text-neutral-400 truncate">{f.path}</p>
+              <p className="text-red-400">{f.error}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* AI failed file list (expandable) */}
+      {showMlFailures && mlFailedFiles.length > 0 && (
+        <div className="rounded border border-red-900/40 bg-red-950/20 p-2 space-y-1 max-h-40 overflow-y-auto">
+          {mlFailedFiles.map(f => (
             <div key={f.id} className="space-y-0.5">
               <p className="font-mono text-neutral-400 truncate">{f.path}</p>
               <p className="text-red-400">{f.error}</p>
