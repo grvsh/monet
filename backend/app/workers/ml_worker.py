@@ -186,7 +186,7 @@ async def ml_flush_batch(ctx: dict) -> None:
             for r in raw_items if r is not None
         ]
         if items:
-            await _process_batch(items, manifest)
+            await _process_batch(items, manifest, redis=redis)
     finally:
         await redis.delete("ml:flush_lock")
 
@@ -223,12 +223,12 @@ async def ml_flush_caption(ctx: dict) -> None:
         if items:
             # Build a caption-only manifest subset
             caption_manifest = {"caption": manifest["caption"]}
-            await _process_batch(items, caption_manifest)
+            await _process_batch(items, caption_manifest, redis=redis)
     finally:
         await redis.delete("ml:caption_lock")
 
 
-async def _process_batch(raw_items: list[str], manifest: dict) -> None:
+async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> None:
     """Load preview images, POST to ML service, persist results."""
     # Parse staging entries
     pairs: list[tuple[uuid.UUID, uuid.UUID | None]] = []
@@ -286,8 +286,8 @@ async def _process_batch(raw_items: list[str], manifest: dict) -> None:
             # Only caption needed — skip the fast pass entirely for this file
             pass
 
-    # Push caption work to the slow queue
-    if caption_restage:
+    # Push caption work to the slow queue (only when redis is available)
+    if caption_restage and redis is not None:
         for file_id, scan_job_id in caption_restage:
             await redis.rpush(_CAPTION_STAGING_KEY, f"{file_id}:{scan_job_id or ''}")
 
