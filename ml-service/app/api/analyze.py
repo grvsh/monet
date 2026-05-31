@@ -97,8 +97,17 @@ def _run_inference(
     return results
 
 
+def _pre_resize(images: list[Image.Image], size: int) -> list[Image.Image]:
+    """Pre-resize images to a small square so CLIP/aesthetic CPU transforms
+    only handle a tiny input instead of the full 768px source.
+    CLIP/CLIP-L14 both resize to 224px internally; 256px is close enough to
+    avoid any quality loss from the two-step resize."""
+    return [img.resize((size, size), Image.BICUBIC) for img in images]
+
+
 def _infer_clip(pil_images: list[Image.Image], results: list[dict], models) -> None:
-    tensors = torch.stack([models.clip_preprocess(img) for img in pil_images]).to(DEVICE)
+    small = _pre_resize(pil_images, 256)
+    tensors = torch.stack([models.clip_preprocess(img) for img in small]).to(DEVICE)
     embeddings = models.clip_model.encode_image(tensors)
     embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True)
     for i, emb in enumerate(embeddings.cpu().float()):
@@ -107,8 +116,8 @@ def _infer_clip(pil_images: list[Image.Image], results: list[dict], models) -> N
 
 
 def _infer_aesthetic(pil_images: list[Image.Image], results: list[dict], models) -> None:
-    # Compute via CLIP L/14 features
-    tensors = torch.stack([models.clip_l14_preprocess(img) for img in pil_images]).to(DEVICE)
+    small = _pre_resize(pil_images, 256)
+    tensors = torch.stack([models.clip_l14_preprocess(img) for img in small]).to(DEVICE)
     features = models.clip_l14_model.encode_image(tensors)
     features = features / features.norm(dim=-1, keepdim=True)
     scores = models.aesthetic_model(features.float()).squeeze(-1)

@@ -20,6 +20,10 @@ from app.models.db import FaceDetection, MediaFile, RootFolder, ScanJob
 logger = logging.getLogger(__name__)
 
 _STAGING_KEY = "ml:batch_staging"
+_CAPTION_STAGING_KEY = "ml:caption_staging"
+# Features that run sequentially and are excluded from the fast batch pass.
+# They are re-staged to _CAPTION_STAGING_KEY and flushed at a lower cadence.
+_SLOW_FEATURES: frozenset[str] = frozenset({"caption"})
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +191,43 @@ async def ml_flush_batch(ctx: dict) -> None:
         await redis.delete("ml:flush_lock")
 
 
+async def ml_flush_caption(ctx: dict) -> None:
+    """Process one caption batch (slow, sequential LM). Runs every 5 minutes."""
+    if not ctx.get("ml_configured"):
+        return
+
+    redis = ctx["redis"]
+    lock_acquired = await redis.set("ml:caption_lock", "1", nx=True, ex=600)
+    if not lock_acquired:
+        return
+
+    try:
+        if ctx.get("ml_manifest") is None:
+            ctx["ml_manifest"] = await _fetch_manifest()
+            if ctx["ml_manifest"] is None:
+                return
+
+        manifest: dict = ctx["ml_manifest"]
+        if "caption" not in manifest:
+            return
+
+        batch_size = settings.monet_ml_batch_size
+        pipe = redis.pipeline()
+        for _ in range(batch_size):
+            pipe.lpop(_CAPTION_STAGING_KEY)
+        raw_items = await pipe.execute()
+        items = [
+            r.decode() if isinstance(r, bytes) else r
+            for r in raw_items if r is not None
+        ]
+        if items:
+            # Build a caption-only manifest subset
+            caption_manifest = {"caption": manifest["caption"]}
+            await _process_batch(items, caption_manifest)
+    finally:
+        await redis.delete("ml:caption_lock")
+
+
 async def _process_batch(raw_items: list[str], manifest: dict) -> None:
     """Load preview images, POST to ML service, persist results."""
     # Parse staging entries
@@ -229,7 +270,33 @@ async def _process_batch(raw_items: list[str], manifest: dict) -> None:
     if not ordered:
         return
 
-    # Union of all features needed across the batch
+    # Separate fast features (batched GPU) from slow ones (caption: sequential LM).
+    # Files needing slow features are re-staged to a dedicated caption queue so
+    # the fast pass isn't blocked by 2s/image autoregressive generation.
+    caption_restage: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+    fast_ordered: list[tuple[uuid.UUID, uuid.UUID | None, list[str], bytes | None]] = []
+    for file_id, scan_job_id, feats, img_bytes in ordered:
+        fast_feats = [f for f in feats if f not in _SLOW_FEATURES]
+        slow_feats = [f for f in feats if f in _SLOW_FEATURES]
+        if slow_feats:
+            caption_restage.append((file_id, scan_job_id))
+        if fast_feats:
+            fast_ordered.append((file_id, scan_job_id, fast_feats, img_bytes))
+        elif not fast_feats and slow_feats:
+            # Only caption needed — skip the fast pass entirely for this file
+            pass
+
+    # Push caption work to the slow queue
+    if caption_restage:
+        for file_id, scan_job_id in caption_restage:
+            await redis.rpush(_CAPTION_STAGING_KEY, f"{file_id}:{scan_job_id or ''}")
+
+    # If no fast work remains after the split, nothing to POST
+    if not fast_ordered:
+        return
+    ordered = fast_ordered
+
+    # Union of all FAST features needed across the batch
     all_features: list[str] = sorted({f for _, _, feats, _ in ordered for f in feats})
 
     # Build multipart payload
@@ -367,11 +434,12 @@ async def _update_scan_counter(
 
 
 class MLWorkerSettings:
-    """ML worker — stages files for batch ML analysis and flushes batches every 30s."""
+    """ML worker — fast features every 30s, captions every 5 minutes."""
 
-    functions = [ml_analyze_file, ml_flush_batch]
+    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption]
     cron_jobs = [
         cron(ml_flush_batch, second={0, 30}),
+        cron(ml_flush_caption, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
     ]
     on_startup = ml_startup
     on_shutdown = ml_shutdown
