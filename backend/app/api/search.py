@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.database import get_session
-from app.models.db import MediaFile, RootFolder, User, UserRootPref
+from app.models.db import AlbumFile, MediaFile, RootFolder, User, UserRootPref
 from app.models.schemas import FileResponse, PaginatedFiles
 
 router = APIRouter()
@@ -63,9 +63,10 @@ async def _get_user_visible_root_ids(
 
 @router.get("", response_model=PaginatedFiles)
 async def search(
-    q: str | None = Query(default=None, description="Search term (filename, camera make/model)"),
+    q: str | None = Query(default=None, description="Search term (filename, camera, caption)"),
     folder_id: uuid.UUID | None = Query(default=None),
     root_folder_id: uuid.UUID | None = Query(default=None),
+    album_id: uuid.UUID | None = Query(default=None),
     media_type: Literal["image", "video", "audio", "all"] = Query(default="all"),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -84,7 +85,7 @@ async def search(
         MediaFile.root_folder_id.in_(visible_root_ids),
     )
 
-    # Text search across filename, camera_make, camera_model
+    # Text search across filename, camera make/model, and AI caption
     if q:
         pattern = f"%{q}%"
         stmt = stmt.where(
@@ -92,10 +93,17 @@ async def search(
                 MediaFile.filename.ilike(pattern),
                 MediaFile.camera_make.ilike(pattern),
                 MediaFile.camera_model.ilike(pattern),
+                MediaFile.caption.ilike(pattern),
             )
         )
 
-    # Optional filters
+    # Optional scope filters
+    if album_id:
+        stmt = stmt.where(
+            MediaFile.id.in_(
+                select(AlbumFile.file_id).where(AlbumFile.album_id == album_id)
+            )
+        )
     if folder_id:
         stmt = stmt.where(MediaFile.folder_id == folder_id)
     if root_folder_id:

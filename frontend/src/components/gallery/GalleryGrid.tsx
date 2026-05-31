@@ -75,6 +75,12 @@ export default function GalleryGrid() {
   const toggleSelection = useGalleryStore((s) => s.toggleSelection)
   const clearSelection = useGalleryStore((s) => s.clearSelection)
   const selectRange = useGalleryStore((s) => s.selectRange)
+  const setCurrentFolderId = useGalleryStore((s) => s.setCurrentFolderId)
+
+  useEffect(() => {
+    setCurrentFolderId(folderId)
+    return () => setCurrentFolderId(null)
+  }, [folderId, setCurrentFolderId])
 
   // Anchor for shift-click range selection
   const lastSelectedIndex = useRef<number | null>(null)

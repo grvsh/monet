@@ -47,7 +47,13 @@ export default function AlbumView() {
   const clearSelection = useGalleryStore((s) => s.clearSelection)
   const selectAll = useGalleryStore((s) => s.selectAll)
   const selectRange = useGalleryStore((s) => s.selectRange)
+  const setCurrentAlbumId = useGalleryStore((s) => s.setCurrentAlbumId)
   const lastSelectedIndex = useRef<number | null>(null)
+
+  useEffect(() => {
+    setCurrentAlbumId(albumId ?? null)
+    return () => setCurrentAlbumId(null)
+  }, [albumId, setCurrentAlbumId])
 
   const queryClient = useQueryClient()
 

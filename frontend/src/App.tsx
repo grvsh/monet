@@ -8,6 +8,7 @@ import GalleryGrid from './components/gallery/GalleryGrid'
 import TrashView from './components/gallery/TrashView'
 import SettingsPage from './components/settings/SettingsPage'
 import AlbumView from './components/album/AlbumView'
+import SearchResults from './components/search/SearchResults'
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.accessToken)
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="browse/:rootFolderId/*" element={<GalleryGrid />} />
         <Route path="albums" element={<AlbumView />} />
         <Route path="albums/:albumId" element={<AlbumView />} />
+        <Route path="search" element={<SearchResults />} />
         <Route path="trash" element={<TrashView />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

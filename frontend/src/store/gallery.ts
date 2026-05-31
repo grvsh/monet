@@ -11,6 +11,8 @@ interface GalleryState {
   sortOrder: SortOrder
   mediaTypeFilter: MediaTypeFilter
   selectedIds: Set<string>
+  currentFolderId: string | null
+  currentAlbumId: string | null
   setSelectedFile: (id: string | null) => void
   setLightboxIndex: (i: number) => void
   setSortField: (f: SortField) => void
@@ -20,6 +22,8 @@ interface GalleryState {
   clearSelection: () => void
   selectAll: (ids: string[]) => void
   selectRange: (ids: string[]) => void
+  setCurrentFolderId: (id: string | null) => void
+  setCurrentAlbumId: (id: string | null) => void
 }
 
 export const useGalleryStore = create<GalleryState>((set) => ({
@@ -29,6 +33,8 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   sortOrder: 'desc',
   mediaTypeFilter: 'all',
   selectedIds: new Set<string>(),
+  currentFolderId: null,
+  currentAlbumId: null,
   setSelectedFile: (id) => set({ selectedFileId: id }),
   setLightboxIndex: (i) => set({ lightboxIndex: i }),
   setSortField: (f) => set({ sortField: f }),
@@ -45,4 +51,6 @@ export const useGalleryStore = create<GalleryState>((set) => ({
   selectAll: (ids) => set({ selectedIds: new Set(ids) }),
   selectRange: (ids) =>
     set((s) => ({ selectedIds: new Set([...s.selectedIds, ...ids]) })),
+  setCurrentFolderId: (id) => set({ currentFolderId: id }),
+  setCurrentAlbumId: (id) => set({ currentAlbumId: id }),
 }))
