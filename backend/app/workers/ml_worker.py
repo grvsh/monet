@@ -146,15 +146,19 @@ async def ml_analyze_file(
 
 
 async def ml_flush_batch(ctx: dict) -> None:
-    """Drain the staging list in batches and send each batch to the ML service."""
+    """Process one batch from the staging list and send it to the ML service.
+
+    One batch per cron fire. The 30-second cron cadence drives throughput.
+    A Redis lock prevents concurrent runs from the same pile-up of stale triggers.
+    Lock TTL (600s) is sized to outlast a single batch including ML service latency.
+    """
     if not ctx.get("ml_configured"):
         return
 
     redis = ctx["redis"]
 
-    # Ensure only one flush runs at a time regardless of how many cron triggers
-    # have piled up. All concurrent/stale triggers become instant no-ops.
-    lock_acquired = await redis.set("ml:flush_lock", "1", nx=True, ex=1800)
+    # Instant no-op for all stale/concurrent triggers while a batch is in flight.
+    lock_acquired = await redis.set("ml:flush_lock", "1", nx=True, ex=600)
     if not lock_acquired:
         return
 
@@ -168,18 +172,16 @@ async def ml_flush_batch(ctx: dict) -> None:
         manifest: dict = ctx["ml_manifest"]
         batch_size = settings.monet_ml_batch_size
 
-        while True:
-            # Pop up to batch_size items from the staging list
-            pipe = redis.pipeline()
-            for _ in range(batch_size):
-                pipe.lpop(_STAGING_KEY)
-            raw_items = await pipe.execute()
-            items = [
-                r.decode() if isinstance(r, bytes) else r
-                for r in raw_items if r is not None
-            ]
-            if not items:
-                break
+        # Pop exactly one batch
+        pipe = redis.pipeline()
+        for _ in range(batch_size):
+            pipe.lpop(_STAGING_KEY)
+        raw_items = await pipe.execute()
+        items = [
+            r.decode() if isinstance(r, bytes) else r
+            for r in raw_items if r is not None
+        ]
+        if items:
             await _process_batch(items, manifest)
     finally:
         await redis.delete("ml:flush_lock")
@@ -247,7 +249,7 @@ async def _process_batch(raw_items: list[str], manifest: dict) -> None:
 
     # POST to ML service
     try:
-        async with httpx.AsyncClient(timeout=1800) as client:
+        async with httpx.AsyncClient(timeout=540) as client:
             resp = await client.post(
                 f"{settings.monet_ml_service_url}/analyze",
                 files=files_payload,
@@ -375,6 +377,6 @@ class MLWorkerSettings:
     on_shutdown = ml_shutdown
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 16
-    job_timeout = 1800
+    job_timeout = 600
     keep_result = 3600
     queue_name = "arq:ml-queue"
