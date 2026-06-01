@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import io
 import uuid
+from pathlib import Path
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, func, select, update
+from fastapi.responses import Response
+from sqlalchemy import Float, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import file_to_response
+from app.config import settings
 from app.core.auth import get_current_user
 from app.database import get_session
 from app.models.db import AlbumFile, FaceDetection, MediaFile, Person, RootFolder, User, UserRootPref
@@ -33,13 +38,83 @@ async def _get_user_visible_root_ids(user: User, session: AsyncSession) -> list[
     return [rid for (rid,) in roots_result.all() if rid not in hidden_ids]
 
 
-def _build_person_response(person: Person, face_count: int, sample_urls: list[str]) -> PersonResponse:
+def _build_person_response(
+    person: Person,
+    face_count: int,
+    sample_urls: list[str],
+    cover_detection_id: str | None = None,
+) -> PersonResponse:
     return PersonResponse(
         id=person.id,
         name=person.name,
         face_count=face_count,
         sample_thumbnail_urls=sample_urls,
+        cover_face_detection_id=cover_detection_id,
     )
+
+
+async def _best_face_thumbnails(
+    person_ids: list[uuid.UUID],
+    visible_root_ids: list[uuid.UUID],
+    session: AsyncSession,
+    limit: int = 4,
+) -> dict[uuid.UUID, tuple[list[str], str | None]]:
+    """For each person_id return (thumbnail_urls_best_first, best_detection_id).
+
+    Priority: recent photos where the face fills >= 50% of the image first;
+    falling back to recent photos with smaller faces, then largest face overall.
+    best_detection_id is the FaceDetection.id for the first photo (used for crops)."""
+    if not person_ids:
+        return {}
+
+    face_ratio = (
+        func.cast(func.jsonb_extract_path_text(FaceDetection.bbox, "w"), Float)
+        * func.cast(func.jsonb_extract_path_text(FaceDetection.bbox, "h"), Float)
+        / func.nullif(
+            func.cast(MediaFile.width, Float) * func.cast(MediaFile.height, Float), 0
+        )
+    )
+
+    # Inner: best detection per (person, file) via DISTINCT ON, preserving detection id.
+    inner = (
+        select(
+            FaceDetection.person_id,
+            FaceDetection.id.label("detection_id"),
+            MediaFile.id.label("file_id"),
+            MediaFile.taken_at.label("taken_at"),
+            face_ratio.label("r"),
+        )
+        .join(MediaFile, MediaFile.id == FaceDetection.file_id)
+        .where(
+            FaceDetection.person_id.in_(person_ids),
+            MediaFile.root_folder_id.in_(visible_root_ids),
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.thumbnail_path.isnot(None),
+        )
+        .order_by(FaceDetection.person_id, MediaFile.id, face_ratio.desc().nullslast())
+        .distinct(FaceDetection.person_id, MediaFile.id)
+        .subquery()
+    )
+
+    # Qualifying photos (face >= 50%) come before smaller-face photos;
+    # within each tier, most recent first; final tiebreaker is face ratio.
+    qualifies = case((inner.c.r >= 0.5, 0), else_=1)
+    stmt = select(inner.c.person_id, inner.c.detection_id, inner.c.file_id).order_by(
+        inner.c.person_id,
+        qualifies.asc(),
+        inner.c.taken_at.desc().nullslast(),
+        inner.c.r.desc().nullslast(),
+    )
+    result = await session.execute(stmt)
+
+    grouped: dict[uuid.UUID, tuple[list[str], str | None]] = {}
+    for person_id, detection_id, file_id in result.all():
+        if person_id not in grouped:
+            grouped[person_id] = ([], str(detection_id))
+        urls, _ = grouped[person_id]
+        if len(urls) < limit:
+            urls.append(f"/api/thumbnails/{file_id}")
+    return grouped
 
 
 @router.get("/people", response_model=PeopleListResponse)
@@ -72,22 +147,13 @@ async def list_people(
     result = await session.execute(stmt)
     rows = result.all()
 
+    person_ids = [person.id for person, _ in rows]
+    best_thumbs = await _best_face_thumbnails(person_ids, visible_root_ids, session)
+
     people: list[PersonResponse] = []
     for person, face_count in rows:
-        sample_stmt = (
-            select(MediaFile.id)
-            .join(FaceDetection, FaceDetection.file_id == MediaFile.id)
-            .where(
-                FaceDetection.person_id == person.id,
-                MediaFile.root_folder_id.in_(visible_root_ids),
-                MediaFile.is_deleted == False,  # noqa: E712
-                MediaFile.thumbnail_path.isnot(None),
-            )
-            .limit(4)
-        )
-        sample_result = await session.execute(sample_stmt)
-        sample_urls = [f"/api/thumbnails/{fid}" for (fid,) in sample_result.all()]
-        people.append(_build_person_response(person, face_count, sample_urls))
+        urls, det_id = best_thumbs.get(person.id) or ([], None)
+        people.append(_build_person_response(person, face_count, urls, det_id))
 
     return PeopleListResponse(people=people)
 
@@ -115,19 +181,9 @@ async def get_person(
     )
     face_count = count_result.scalar_one()
 
-    sample_result = await session.execute(
-        select(MediaFile.id)
-        .join(FaceDetection, FaceDetection.file_id == MediaFile.id)
-        .where(
-            FaceDetection.person_id == person_id,
-            MediaFile.root_folder_id.in_(visible_root_ids),
-            MediaFile.is_deleted == False,  # noqa: E712
-            MediaFile.thumbnail_path.isnot(None),
-        )
-        .limit(4)
-    )
-    sample_urls = [f"/api/thumbnails/{fid}" for (fid,) in sample_result.all()]
-    return _build_person_response(person, face_count, sample_urls)
+    best_thumbs = await _best_face_thumbnails([person_id], visible_root_ids, session)
+    urls, det_id = best_thumbs.get(person_id) or ([], None)
+    return _build_person_response(person, face_count, urls, det_id)
 
 
 @router.get("/people/{person_id}/files", response_model=PaginatedFiles)
@@ -235,19 +291,9 @@ async def update_person(
     )
     face_count = count_result.scalar_one()
 
-    sample_result = await session.execute(
-        select(MediaFile.id)
-        .join(FaceDetection, FaceDetection.file_id == MediaFile.id)
-        .where(
-            FaceDetection.person_id == person_id,
-            MediaFile.root_folder_id.in_(visible_root_ids),
-            MediaFile.is_deleted == False,  # noqa: E712
-            MediaFile.thumbnail_path.isnot(None),
-        )
-        .limit(4)
-    )
-    sample_urls = [f"/api/thumbnails/{fid}" for (fid,) in sample_result.all()]
-    return _build_person_response(person, face_count, sample_urls)
+    best_thumbs = await _best_face_thumbnails([person_id], visible_root_ids, session)
+    urls, det_id = best_thumbs.get(person_id) or ([], None)
+    return _build_person_response(person, face_count, urls, det_id)
 
 
 @router.post("/people/merge", response_model=PersonResponse)
@@ -302,19 +348,83 @@ async def merge_people(
         )
     )
     face_count = count_result.scalar_one()
-    sample_result = await session.execute(
-        select(MediaFile.id)
-        .join(FaceDetection, FaceDetection.file_id == MediaFile.id)
-        .where(
-            FaceDetection.person_id == body.target_id,
-            MediaFile.root_folder_id.in_(visible_root_ids),
-            MediaFile.is_deleted == False,  # noqa: E712
-            MediaFile.thumbnail_path.isnot(None),
-        )
-        .limit(4)
+    best_thumbs = await _best_face_thumbnails([body.target_id], visible_root_ids, session)
+    urls, det_id = best_thumbs.get(body.target_id) or ([], None)
+    return _build_person_response(target, face_count, urls, det_id)
+
+
+_CROP_CACHE_HEADERS = {"Cache-Control": "max-age=31536000, immutable"}
+_CROP_PADDING = 0.5  # fraction of max(face_w, face_h) added on each side
+
+
+def _make_face_crop(thumb_path: str, bbox: dict, orig_w: int | None, orig_h: int | None) -> bytes:
+    from PIL import Image
+
+    img = Image.open(thumb_path).convert("RGB")
+    tw, th = img.size
+
+    if orig_w and orig_h:
+        # mf.width/height are captured before EXIF transpose, so for rotated photos
+        # they may be swapped relative to the thumbnail (which is post-transpose).
+        # Detect this by comparing aspect ratios and swap if needed.
+        ar_thumb = tw / th
+        if abs(ar_thumb - orig_h / orig_w) < abs(ar_thumb - orig_w / orig_h):
+            orig_w, orig_h = orig_h, orig_w
+        sx, sy = tw / orig_w, th / orig_h
+    else:
+        sx = sy = 1.0
+
+    bx = bbox["x"] * sx
+    by = bbox["y"] * sy
+    bw = bbox["w"] * sx
+    bh = bbox["h"] * sy
+
+    pad = max(bw, bh) * _CROP_PADDING
+    x1 = max(0.0, bx - pad)
+    y1 = max(0.0, by - pad)
+    x2 = min(float(tw), bx + bw + pad)
+    y2 = min(float(th), by + bh + pad)
+
+    # Expand to square around the face center
+    cw, ch = x2 - x1, y2 - y1
+    if cw > ch:
+        delta = (cw - ch) / 2
+        y1 = max(0.0, y1 - delta)
+        y2 = min(float(th), y2 + delta)
+    elif ch > cw:
+        delta = (ch - cw) / 2
+        x1 = max(0.0, x1 - delta)
+        x2 = min(float(tw), x2 + delta)
+
+    crop = img.crop((int(x1), int(y1), int(x2), int(y2)))
+    buf = io.BytesIO()
+    crop.save(buf, "JPEG", quality=85, optimize=True)
+    return buf.getvalue()
+
+
+@router.get("/crop/{detection_id}")
+async def get_face_crop(
+    detection_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """Serve a square face-crop JPEG from the file thumbnail."""
+    detection = await session.get(FaceDetection, detection_id)
+    if not detection:
+        raise HTTPException(status_code=404, detail="Detection not found")
+
+    mf = await session.get(MediaFile, detection.file_id)
+    if not mf or mf.is_deleted or not mf.thumbnail_path:
+        raise HTTPException(status_code=404, detail="Thumbnail not available")
+
+    thumb_path = Path(settings.monet_cache_dir) / "thumbnails" / mf.thumbnail_path
+    if not thumb_path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail not found on disk")
+
+    crop_bytes = await asyncio.get_running_loop().run_in_executor(
+        None, _make_face_crop, str(thumb_path), detection.bbox, mf.width, mf.height
     )
-    sample_urls = [f"/api/thumbnails/{fid}" for (fid,) in sample_result.all()]
-    return _build_person_response(target, face_count, sample_urls)
+    return Response(content=crop_bytes, media_type="image/jpeg", headers=_CROP_CACHE_HEADERS)
 
 
 @router.get("/cluster/status")

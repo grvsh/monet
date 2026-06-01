@@ -141,6 +141,7 @@ export interface PersonResponse {
   name: string | null
   face_count: number
   sample_thumbnail_urls: string[]
+  cover_face_detection_id: string | null
 }
 
 export interface PeopleListResponse {

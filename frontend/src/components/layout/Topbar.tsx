@@ -7,6 +7,8 @@ import { useRecentSearchesStore } from '../../store/recentSearches'
 import { logout } from '../../api/auth'
 import { useQuery } from '@tanstack/react-query'
 import { listRootFolders } from '../../api/rootFolders'
+import { listPeople } from '../../api/faces'
+import type { PersonResponse } from '../../types/api'
 
 type SearchScope = 'library' | 'current'
 
@@ -66,7 +68,19 @@ export default function Topbar() {
   )
   const [scope, setScope] = useState<SearchScope>('library')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  const { data: peopleData } = useQuery({
+    queryKey: ['people-names'],
+    queryFn: listPeople,
+    staleTime: 5 * 60 * 1000,
+  })
+  const namedPeople = (peopleData?.people ?? []).filter((p) => p.name)
+  const suggestions: PersonResponse[] = query.trim()
+    ? namedPeople.filter((p) => p.name!.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+    : []
 
   const canScopeToFolder = !!currentFolderId
   const canScopeToAlbum = !!currentAlbumId
@@ -84,11 +98,14 @@ export default function Topbar() {
     }
   }, [location.pathname, searchParams])
 
-  // Close menu on outside click
+  // Close menu/suggestions on outside click
   useEffect(() => {
     function onPointerDown(e: PointerEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false)
+      }
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSuggestionsOpen(false)
       }
     }
     document.addEventListener('pointerdown', onPointerDown)
@@ -104,10 +121,7 @@ export default function Topbar() {
     }
   }
 
-  function handleSearch(e: FormEvent) {
-    e.preventDefault()
-    const q = query.trim()
-    if (!q) return
+  function submitSearch(q: string) {
     const params = new URLSearchParams({ q })
     if (scope === 'current') {
       if (currentFolderId) params.set('folder_id', currentFolderId)
@@ -117,6 +131,19 @@ export default function Topbar() {
     setLightboxIndex(-1)
     navigate(`/search?${params.toString()}`)
     setMenuOpen(false)
+    setSuggestionsOpen(false)
+  }
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q) return
+    submitSearch(q)
+  }
+
+  function handlePersonSuggestion(person: PersonResponse) {
+    setQuery(person.name!)
+    submitSearch(person.name!)
   }
 
   const scopeLabel =
@@ -149,15 +176,45 @@ export default function Topbar() {
 
       {/* Search bar */}
       <form onSubmit={handleSearch} className="flex items-center gap-1 shrink-0">
-        <div className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-800 px-2.5 h-8 w-64 focus-within:border-neutral-500 transition-colors">
-          <Search size={13} className="text-neutral-500 shrink-0" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search captions…"
-            className="flex-1 bg-transparent text-sm text-neutral-200 placeholder:text-neutral-600 outline-none min-w-0"
-          />
+        <div ref={searchRef} className="relative">
+          <div className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-800 px-2.5 h-8 w-64 focus-within:border-neutral-500 transition-colors">
+            <Search size={13} className="text-neutral-500 shrink-0" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setSuggestionsOpen(true) }}
+              onFocus={() => setSuggestionsOpen(true)}
+              placeholder="Search photos, people…"
+              className="flex-1 bg-transparent text-sm text-neutral-200 placeholder:text-neutral-600 outline-none min-w-0"
+            />
+          </div>
+          {suggestionsOpen && suggestions.length > 0 && (
+            <div className="absolute left-0 top-full mt-1 w-64 rounded-md border border-neutral-700 bg-neutral-800 shadow-lg z-50 py-1">
+              <p className="px-3 pt-1 pb-1 text-xs text-neutral-500 font-medium uppercase tracking-wide">People</p>
+              {suggestions.map((person) => (
+                <button
+                  key={person.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); handlePersonSuggestion(person) }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors text-left"
+                >
+                  {person.cover_face_detection_id ? (
+                    <img
+                      src={`/api/faces/crop/${person.cover_face_detection_id}`}
+                      alt=""
+                      className="w-6 h-6 rounded-full object-cover shrink-0 bg-neutral-700"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-neutral-700 flex items-center justify-center shrink-0">
+                      <User size={12} className="text-neutral-400" />
+                    </div>
+                  )}
+                  <span className="truncate">{person.name}</span>
+                  <span className="ml-auto text-xs text-neutral-600 shrink-0">{person.face_count}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Scope menu */}

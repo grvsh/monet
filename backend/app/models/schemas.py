@@ -338,6 +338,7 @@ class PersonResponse(BaseModel):
     name: str | None
     face_count: int
     sample_thumbnail_urls: list[str]
+    cover_face_detection_id: str | None = None
 
 
 class PeopleListResponse(BaseModel):
