@@ -31,6 +31,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "pgvector>=0.3",
     "httpx>=0.27",
+    "open-clip-torch>=2.24",
 ]
 
 [project.optional-dependencies]

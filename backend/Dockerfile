@@ -18,6 +18,9 @@ WORKDIR /app
 FROM base AS development
 
 COPY pyproject.toml .
+# Install CPU-only PyTorch before the rest of the deps so open-clip-torch
+# reuses it instead of pulling in the much larger CUDA build.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -e ".[dev]"
 
 COPY . .
@@ -31,6 +34,9 @@ USER monet
 FROM base AS production
 
 COPY pyproject.toml .
+# Install CPU-only PyTorch before the rest of the deps so open-clip-torch
+# reuses it instead of pulling in the much larger CUDA build.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir .
 
 COPY . .

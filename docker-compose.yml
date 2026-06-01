@@ -63,6 +63,13 @@ services:
       MONET_CACHE_DIR: /var/monet/cache
       MONET_HOST: 0.0.0.0
       MONET_PORT: "8000"
+      # Keep HuggingFace weights on the persistent cache volume so they
+      # survive container rebuilds (ViT-H-14 text encoder is ~3 GB download).
+      HF_HOME: /var/monet/cache/hf
+      # Torch's dynamo cache-dir init calls getpass.getuser() which fails when
+      # the container UID has no /etc/passwd entry. Pinning the dir avoids it.
+      TORCHINDUCTOR_CACHE_DIR: /var/monet/cache/torch
+      HOME: /var/monet/cache
     env_file:
       - .env
     volumes:

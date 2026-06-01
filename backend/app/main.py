@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Monet starting up")
     await get_redis()
 
+    from app.core import clip_encoder
+    clip_encoder.preload()
+
     # Start watchdog observers for all active root folders
     if settings.monet_watch_enabled:
         try:
