@@ -81,34 +81,107 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
   const buttonVisible = isEntered && !isClosing
 
   const portalContent = isEntering && !isClosing && currentFile ? (
-    panelVisible ? (
-      /* ── Metadata panel ── */
-      <div
-        style={{ zIndex: 99999 }}
-        className="w-[360px] fixed right-0 top-0 bottom-0 overflow-y-auto border-l border-neutral-700 bg-neutral-900"
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-700">
-          <h3 className="text-sm font-semibold text-neutral-100">File Info</h3>
+    <>
+      {/* ── Metadata panel OR reopen button ── */}
+      {panelVisible ? (
+        <div
+          style={{ zIndex: 99999 }}
+          className="w-[360px] fixed right-0 top-0 bottom-0 overflow-y-auto border-l border-neutral-700 bg-neutral-900"
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-700">
+            <h3 className="text-sm font-semibold text-neutral-100">File Info</h3>
+            <button
+              onClick={() => setShowMeta(false)}
+              className="text-neutral-400 hover:text-neutral-100 text-xs"
+            >
+              Close
+            </button>
+          </div>
+          <MetadataPanel fileId={currentFile.id} />
+        </div>
+      ) : (
+        <button
+          style={{ zIndex: 99999 }}
+          onClick={() => setShowMeta(true)}
+          className="fixed top-14 right-3 p-2 rounded-md bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
+          title="Show file info (I)"
+        >
+          <PanelRight size={18} />
+        </button>
+      )}
+
+      {/* ── 1080p badge ── */}
+      {buttonVisible && currentFile.media_type === 'video' && currentFile.has_video_preview && (
+        <div style={{ zIndex: 99999 }} className="fixed bottom-4 left-4">
+          <span className="rounded-full px-3 py-1.5 text-xs font-medium bg-neutral-800/80 text-neutral-300">
+            1080p
+          </span>
+        </div>
+      )}
+
+      {/* ── Download + Info toolbar ── */}
+      {buttonVisible && (
+        <div
+          style={{ zIndex: 99999 }}
+          className={cn('fixed bottom-4 flex items-center gap-2', showMeta ? 'right-[376px]' : 'right-4')}
+        >
+          <div className="relative" ref={downloadMenuRef}>
+            <button
+              onClick={() => setShowDownloadMenu((v) => !v)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                showDownloadMenu
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700'
+              )}
+              title="Download"
+            >
+              <Download size={14} />
+              Download
+            </button>
+            {showDownloadMenu && (
+              <div className="absolute bottom-full mb-2 right-0 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 min-w-[180px]">
+                {currentFile.has_preview && (
+                  <button
+                    onClick={() => {
+                      const stem = currentFile.filename.replace(/\.[^.]+$/, '')
+                      downloadFile(`/api/previews/${currentFile.id}/download`, `${stem}_preview.jpg`)
+                      setShowDownloadMenu(false)
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                  >
+                    Preview (JPEG)
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    downloadFile(`/api/original/${currentFile.id}`, currentFile.filename)
+                    setShowDownloadMenu(false)
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
+                >
+                  Original ({currentFile.filename.split('.').pop()?.toUpperCase() ?? 'File'})
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={() => setShowMeta(false)}
-            className="text-neutral-400 hover:text-neutral-100 text-xs"
+            onClick={() => setShowMeta((v) => !v)}
+            className={cn(
+              'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+              showMeta
+                ? 'bg-blue-600 text-white'
+                : 'bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700'
+            )}
+            title="Toggle info panel (I)"
           >
-            Close
+            <Info size={14} />
+            Info
           </button>
         </div>
-        <MetadataPanel fileId={currentFile.id} />
-      </div>
-    ) : (
-      /* ── Panel closed: reopen button sits below YARL's own X button ── */
-      <button
-        style={{ zIndex: 99999 }}
-        onClick={() => setShowMeta(true)}
-        className="fixed top-14 right-3 p-2 rounded-md bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700 hover:text-white transition-colors"
-        title="Show file info (I)"
-      >
-        <PanelRight size={18} />
-      </button>
-    )
+      )}
+    </>
   ) : null
 
   return (
@@ -166,67 +239,6 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
             }}
           />
 
-          {/* Bottom bar — download + info toggle */}
-          {buttonVisible && currentFile && (
-            <div className="absolute bottom-4 right-4 z-[9999] flex items-center gap-2">
-              {/* Download dropdown */}
-              <div className="relative" ref={downloadMenuRef}>
-                <button
-                  onClick={() => setShowDownloadMenu((v) => !v)}
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-                    showDownloadMenu
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700'
-                  )}
-                  title="Download"
-                >
-                  <Download size={14} />
-                  Download
-                </button>
-                {showDownloadMenu && (
-                  <div className="absolute bottom-full mb-2 right-0 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 min-w-[180px]">
-                    {currentFile.has_preview && (
-                      <button
-                        onClick={() => {
-                          const stem = currentFile.filename.replace(/\.[^.]+$/, '')
-                          downloadFile(`/api/previews/${currentFile.id}/download`, `${stem}_preview.jpg`)
-                          setShowDownloadMenu(false)
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
-                      >
-                        Preview (JPEG)
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        downloadFile(`/api/original/${currentFile.id}`, currentFile.filename)
-                        setShowDownloadMenu(false)
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-neutral-200 hover:bg-neutral-700 transition-colors"
-                    >
-                      Original ({currentFile.filename.split('.').pop()?.toUpperCase() ?? 'File'})
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Info toggle */}
-              <button
-                onClick={() => setShowMeta((v) => !v)}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-                  showMeta
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-neutral-800/80 text-neutral-300 hover:bg-neutral-700'
-                )}
-                title="Toggle info panel (I)"
-              >
-                <Info size={14} />
-                Info
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
