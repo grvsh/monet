@@ -57,6 +57,11 @@ export async function getProcessingStatus(rootFolderId: string): Promise<Process
   return data
 }
 
+export async function retryMlFailed(rootFolderId: string): Promise<{ queued: number }> {
+  const { data } = await client.post<{ queued: number }>(`/api/index/retry-ml-failed/${rootFolderId}`)
+  return data
+}
+
 export interface CreateUserData {
   email: string
   password: string

@@ -286,6 +286,11 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
     # captions are sent directly to the ML service.
     has_fast_in_manifest = bool(set(manifest.keys()) - _SLOW_FEATURES)
 
+    # Files re-staged for captions must not have their pending counter decremented
+    # here — caption processing will do it. Tracking them avoids a double-decrement
+    # that causes ml_files_pending to go negative.
+    caption_restage_ids: set[uuid.UUID] = set()
+
     if has_fast_in_manifest:
         caption_restage: list[tuple[uuid.UUID, uuid.UUID | None]] = []
         fast_ordered: list[tuple[uuid.UUID, uuid.UUID | None, list[str], bytes | None]] = []
@@ -294,6 +299,7 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
             slow_feats = [f for f in feats if f in _SLOW_FEATURES]
             if slow_feats:
                 caption_restage.append((file_id, scan_job_id))
+                caption_restage_ids.add(file_id)
             if fast_feats:
                 fast_ordered.append((file_id, scan_job_id, fast_feats, img_bytes))
 
@@ -346,13 +352,15 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
     # roll back the whole batch.
     now = datetime.now(timezone.utc)
     for (file_id, scan_job_id, feats), ml_result in zip(valid_ordered, ml_results):
+        restaged = file_id in caption_restage_ids
         try:
             async with async_session_factory() as session:
                 async with session.begin():
                     mf = await session.get(MediaFile, file_id)
                     if mf:
                         _apply_ml_result(mf, ml_result, manifest, feats, now, session)
-            await _update_scan_counter(scan_job_id, done=1, pending=-1)
+            if not restaged:
+                await _update_scan_counter(scan_job_id, done=1, pending=-1)
         except Exception as exc:
             logger.exception("Failed to persist ML result for file %s", file_id)
             await _set_ml_file_error(file_id, f"Failed to save ML result: {exc!s}"[:500])

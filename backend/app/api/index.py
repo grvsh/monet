@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -189,7 +189,19 @@ async def processing_status(
         for row in failed_rows
     ]
 
-    # ML counters come from the latest scan job for this root folder.
+    # ML counters derived from MediaFile state — authoritative and immune to
+    # the double-increment bug that inflated the scan job's ml_files_done counter.
+    ml_done_result = await session.execute(
+        select(func.count()).where(
+            MediaFile.root_folder_id == root_folder_id,
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.ai_analyzed_at.isnot(None),
+        )
+    )
+    ml_done = ml_done_result.scalar_one()
+    ml_failed = 0  # set below from ml_failed_files
+
+    # Pending: use the scan job counter clamped to ≥0 for in-progress display.
     ml_job_result = await session.execute(
         select(ScanJob)
         .where(ScanJob.root_folder_id == root_folder_id)
@@ -197,10 +209,7 @@ async def processing_status(
         .limit(1)
     )
     latest_job = ml_job_result.scalar_one_or_none()
-    ml_pending = latest_job.ml_files_pending if latest_job else 0
-    ml_done = latest_job.ml_files_done if latest_job else 0
-    ml_failed = latest_job.ml_files_failed if latest_job else 0
-    ml_total = ml_pending + ml_done + ml_failed
+    ml_pending = max(0, latest_job.ml_files_pending if latest_job else 0)
 
     # Per-file ML failure details.
     ml_failed_result = await session.execute(
@@ -214,6 +223,8 @@ async def processing_status(
         FailedFileInfo(id=row.id, path=row.path, error=row.ml_error)
         for row in ml_failed_result.all()
     ]
+    ml_failed = len(ml_failed_files)
+    ml_total = ml_done + ml_pending + ml_failed
 
     # Caption done — count of files with a caption written.
     caption_done_result = await session.execute(
@@ -245,3 +256,55 @@ async def processing_status(
         caption_pending=caption_pending,
         caption_done=caption_done,
     )
+
+
+@router.post("/retry-ml-failed/{root_folder_id}", dependencies=[Depends(require_admin)])
+async def retry_ml_failed(
+    root_folder_id: uuid.UUID,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    redis=Depends(get_redis),
+) -> dict:
+    """Clear ml_error on failed files and re-enqueue them for ML analysis."""
+    result = await session.execute(
+        select(MediaFile.id).where(
+            MediaFile.root_folder_id == root_folder_id,
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.ml_error.isnot(None),
+        )
+    )
+    file_ids = [row.id for row in result.all()]
+    if not file_ids:
+        return {"queued": 0}
+
+    await session.execute(
+        update(MediaFile)
+        .where(MediaFile.id.in_(file_ids))
+        .values(ml_error=None)
+    )
+    await session.commit()
+
+    latest_job_result = await session.execute(
+        select(ScanJob)
+        .where(ScanJob.root_folder_id == root_folder_id)
+        .order_by(ScanJob.started_at.desc())
+        .limit(1)
+    )
+    latest_job = latest_job_result.scalar_one_or_none()
+    scan_job_id_str = str(latest_job.id) if latest_job else ""
+
+    for file_id in file_ids:
+        await redis.rpush("ml:batch_staging", f"{file_id}:{scan_job_id_str}")
+
+    if latest_job:
+        await session.execute(
+            update(ScanJob)
+            .where(ScanJob.id == latest_job.id)
+            .values(
+                ml_files_pending=ScanJob.ml_files_pending + len(file_ids),
+                ml_files_failed=ScanJob.ml_files_failed - len(file_ids),
+            )
+        )
+        await session.commit()
+
+    return {"queued": len(file_ids)}

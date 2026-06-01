@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listRootFolders, deleteRootFolder, updateRootFolder } from '../../api/rootFolders'
-import { triggerScan, getRootScanStatus, getProcessingStatus } from '../../api/index'
+import { triggerScan, getRootScanStatus, getProcessingStatus, retryMlFailed } from '../../api/index'
 import type { ProcessingStatusResponse } from '../../api/index'
 import type { RootFolderResponse, ScanJobResponse } from '../../types/api'
 import { Button } from '../ui/Button'
@@ -12,17 +12,18 @@ import AddRootFolderModal from './AddRootFolderModal'
 import { formatDateTime } from '../../lib/utils'
 import { Pencil, Trash2, RefreshCw, Check, X, ChevronDown, ChevronRight } from 'lucide-react'
 
-interface ScanStatusBadge {
+interface ScanStatusProps {
   rootFolderId: string
 }
 
-function ScanStatus({ rootFolderId }: ScanStatusBadge) {
+function ScanStatus({ rootFolderId }: ScanStatusProps) {
   const [scanPolling, setScanPolling] = useState(true)
   const [assetPolling, setAssetPolling] = useState(true)
   const [mlPolling, setMlPolling] = useState(true)
   const [captionPolling, setCaptionPolling] = useState(true)
   const [showFailures, setShowFailures] = useState(false)
   const [showMlFailures, setShowMlFailures] = useState(false)
+  const queryClient = useQueryClient()
 
   const { data: job } = useQuery<ScanJobResponse>({
     queryKey: ['scan-status', rootFolderId],
@@ -43,6 +44,14 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
     queryKey: ['processing-status', rootFolderId],
     queryFn: () => getProcessingStatus(rootFolderId),
     refetchInterval: (assetPolling || mlPolling || captionPolling) ? 2000 : false,
+  })
+
+  const retryMlMutation = useMutation({
+    mutationFn: () => retryMlFailed(rootFolderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['processing-status', rootFolderId] })
+      setShowMlFailures(false)
+    },
   })
 
   const scanDone = job?.status === 'completed' || job?.status === 'failed'
@@ -158,7 +167,7 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
             </button>
           </>}
 
-          {/* ML failures — expandable with per-file details */}
+          {/* ML failures — expandable with per-file details + retry */}
           {mlFailedFiles.length > 0 && <>
             <span className="text-neutral-700">·</span>
             <button
@@ -167,6 +176,14 @@ function ScanStatus({ rootFolderId }: ScanStatusBadge) {
             >
               {showMlFailures ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
               {mlFailedFiles.length} AI failed
+            </button>
+            <button
+              className="text-neutral-500 hover:text-neutral-300 disabled:opacity-50"
+              onClick={() => retryMlMutation.mutate()}
+              disabled={retryMlMutation.isPending}
+              title="Retry failed AI analysis"
+            >
+              {retryMlMutation.isPending ? 'retrying…' : 'retry'}
             </button>
           </>}
         </div>
