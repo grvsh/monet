@@ -300,6 +300,48 @@ function UserManagement() {
   )
 }
 
+function FaceThresholdSetting() {
+  const user = useAuthStore((s) => s.user)
+  const setUser = useAuthStore((s) => s.setUser)
+  const [value, setValue] = useState(String(user?.face_cluster_min_size ?? 20))
+
+  const mutation = useMutation({
+    mutationFn: (n: number) => patchMyPreferences({ face_cluster_min_size: n }),
+    onSuccess: (updatedUser) => setUser(updatedUser),
+  })
+
+  function handleBlur() {
+    const n = parseInt(value, 10)
+    if (!isNaN(n) && n >= 1 && n !== user?.face_cluster_min_size) {
+      mutation.mutate(n)
+    }
+  }
+
+  return (
+    <div className="max-w-sm space-y-3">
+      <h3 className="text-sm font-semibold text-neutral-200">People</h3>
+      <div className="rounded-lg border border-neutral-700 bg-neutral-800/30 p-4 space-y-2">
+        <label htmlFor="face-threshold" className="text-sm text-neutral-300 font-medium">
+          Minimum appearances to show a person
+        </label>
+        <p className="text-xs text-neutral-500">
+          Persons with fewer detected face appearances than this threshold are hidden from the People page.
+        </p>
+        <input
+          id="face-threshold"
+          type="number"
+          min={1}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={handleBlur}
+          className="w-24 rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        {mutation.isPending && <p className="text-xs text-neutral-500">Saving…</p>}
+      </div>
+    </div>
+  )
+}
+
 function DiskDeletionToggle() {
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
@@ -342,6 +384,7 @@ export default function AccountSettings() {
 
   return (
     <div className="space-y-10">
+      <FaceThresholdSetting />
       <DiskDeletionToggle />
       <ChangePasswordForm />
 

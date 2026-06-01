@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import clip_encoder
 from app.core.auth import get_current_user
 from app.database import get_session
-from app.models.db import AlbumFile, MediaFile, RootFolder, User, UserRootPref
+from app.models.db import AlbumFile, FaceDetection, MediaFile, Person, RootFolder, User, UserRootPref
 from app.models.schemas import FileResponse, PaginatedFiles
 from app.api.utils import file_to_response
 
@@ -81,21 +81,28 @@ async def search(
     if date_to:
         where.append(MediaFile.taken_at <= date_to)
 
+    # Person-name resolution: if query mentions a known person, constrain file set.
+    effective_q = q
     if q:
+        effective_q, person_file_ids = await _resolve_person_filter(q, visible_root_ids, session)
+        if person_file_ids is not None:
+            where.append(MediaFile.id.in_(person_file_ids))
+
+    if effective_q:
         # Encode query on CPU in a thread pool so the event loop stays unblocked.
         embedding = await asyncio.get_running_loop().run_in_executor(
-            None, clip_encoder.encode, q
+            None, clip_encoder.encode, effective_q
         )
 
         if embedding is not None:
             return await _clip_search(
-                q, embedding, where, page, page_size, session
+                effective_q, embedding, where, page, page_size, session
             )
 
         # CLIP not ready yet — fall back to full-text search (Tier 1).
-        return await _fts_search(q, where, page, page_size, session)
+        return await _fts_search(effective_q, where, page, page_size, session)
 
-    # No query: return all files ordered by date.
+    # No query (or query was only a person name): return files ordered by date.
     stmt = select(MediaFile).where(*where)
     return await _paginate(stmt, page, page_size, session)
 
@@ -164,6 +171,56 @@ async def _clip_search(
         page_size=page_size,
         pages=pages,
     )
+
+
+async def _resolve_person_filter(
+    q: str,
+    visible_root_ids: list[uuid.UUID],
+    session: AsyncSession,
+) -> tuple[str, list[uuid.UUID] | None]:
+    """Return (remaining_query, file_ids) if a known person name is found in q.
+
+    Longest match wins.  file_ids is None when no person name matched.
+    """
+    persons_result = await session.execute(
+        select(Person.id, Person.name)
+        .join(FaceDetection, FaceDetection.person_id == Person.id)
+        .join(MediaFile, MediaFile.id == FaceDetection.file_id)
+        .where(
+            Person.name.isnot(None),
+            MediaFile.root_folder_id.in_(visible_root_ids),
+        )
+        .distinct()
+    )
+    persons = [(pid, name) for pid, name in persons_result.all() if name]
+
+    if not persons:
+        return q, None
+
+    q_lower = q.lower()
+    best_match: tuple[uuid.UUID, str] | None = None
+    for pid, name in persons:
+        if name.lower() in q_lower:
+            if best_match is None or len(name) > len(best_match[1]):
+                best_match = (pid, name)
+
+    if best_match is None:
+        return q, None
+
+    matched_id, matched_name = best_match
+    remaining = q_lower.replace(matched_name.lower(), "").strip()
+
+    files_result = await session.execute(
+        select(MediaFile.id)
+        .join(FaceDetection, FaceDetection.file_id == MediaFile.id)
+        .where(
+            FaceDetection.person_id == matched_id,
+            MediaFile.root_folder_id.in_(visible_root_ids),
+            MediaFile.is_deleted == False,  # noqa: E712
+        )
+    )
+    file_ids = [r[0] for r in files_result.all()]
+    return remaining, file_ids
 
 
 async def _fts_search(

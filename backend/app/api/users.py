@@ -127,7 +127,8 @@ async def deactivate_user(
 
 
 class UpdatePreferencesRequest(BaseModel):
-    allow_disk_deletion: bool
+    allow_disk_deletion: bool | None = None
+    face_cluster_min_size: int | None = None
 
 
 @router.patch("/me/preferences", response_model=UserResponse)
@@ -136,7 +137,10 @@ async def update_my_preferences(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> UserResponse:
-    current_user.allow_disk_deletion = body.allow_disk_deletion
+    if body.allow_disk_deletion is not None:
+        current_user.allow_disk_deletion = body.allow_disk_deletion
+    if body.face_cluster_min_size is not None:
+        current_user.face_cluster_min_size = max(1, body.face_cluster_min_size)
     await session.commit()
     await session.refresh(current_user)
     return UserResponse.model_validate(current_user)

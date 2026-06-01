@@ -450,17 +450,152 @@ async def _update_scan_counter(
 
 
 # ---------------------------------------------------------------------------
+# Face clustering
+# ---------------------------------------------------------------------------
+
+_CLUSTER_LOCK = "ml:cluster_faces_lock"
+_CLUSTER_LOCK_TTL = 3600  # 1 hour max for a cluster run
+
+
+async def cluster_faces(ctx: dict) -> None:
+    """DBSCAN cluster all stored face embeddings and assign person_id.
+
+    Runs nightly.  Preserves existing person names by matching new cluster
+    centroids to existing ones (cosine similarity ≥ 0.85).
+    """
+    redis = ctx.get("redis")
+    if redis and not await redis.set(_CLUSTER_LOCK, "1", nx=True, ex=_CLUSTER_LOCK_TTL):
+        logger.info("cluster_faces: another run in progress, skipping")
+        return
+
+    try:
+        await _do_cluster_faces()
+    finally:
+        if redis:
+            await redis.delete(_CLUSTER_LOCK)
+
+
+async def _do_cluster_faces() -> None:
+    import numpy as np
+    from sklearn.cluster import DBSCAN
+    from sqlalchemy import func
+
+    from app.models.db import FaceDetection, Person
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            # ── 1. Load all face embeddings ──────────────────────────────────
+            result = await session.execute(
+                select(FaceDetection).where(FaceDetection.embedding.isnot(None))
+            )
+            all_faces: list[FaceDetection] = result.scalars().all()
+
+            if len(all_faces) < 2:
+                logger.info("cluster_faces: fewer than 2 faces, nothing to cluster")
+                return
+
+            logger.info("cluster_faces: clustering %d face embeddings", len(all_faces))
+
+            embeddings = np.array([f.embedding for f in all_faces], dtype=np.float32)
+
+            # ── 2. L2-normalise (euclidean on unit vecs == cosine distance) ──
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            normalized = embeddings / (norms + 1e-10)
+
+            # ── 3. DBSCAN ────────────────────────────────────────────────────
+            # eps=0.95 on L2-normalised ≈ cosine distance 0.45 threshold
+            clustering = DBSCAN(
+                eps=0.95,
+                min_samples=2,
+                metric="euclidean",
+                algorithm="ball_tree",
+                n_jobs=-1,
+            ).fit(normalized)
+            labels: np.ndarray = clustering.labels_
+
+            n_clusters = len(set(labels) - {-1})
+            logger.info("cluster_faces: found %d clusters, %d noise points",
+                        n_clusters, int((labels == -1).sum()))
+
+            # ── 4. Load existing persons for centroid matching ───────────────
+            persons_result = await session.execute(
+                select(Person).where(Person.centroid.isnot(None))
+            )
+            existing_persons: list[Person] = persons_result.scalars().all()
+
+            if existing_persons:
+                existing_centroids = np.array(
+                    [p.centroid for p in existing_persons], dtype=np.float32
+                )
+            else:
+                existing_centroids = np.empty((0, 512), dtype=np.float32)
+
+            # ── 5. Match new clusters → persons ──────────────────────────────
+            unique_labels = sorted(set(labels.tolist()) - {-1})
+            label_to_person: dict[int, Person] = {}
+            matched_person_ids: set = set()
+
+            for label in unique_labels:
+                mask = labels == label
+                cluster_embs = normalized[mask]
+                centroid = cluster_embs.mean(axis=0)
+                centroid /= np.linalg.norm(centroid) + 1e-10
+
+                matched_person: Person | None = None
+                if len(existing_persons) > 0:
+                    sims = existing_centroids @ centroid  # cosine similarities
+                    best_idx = int(np.argmax(sims))
+                    if (
+                        float(sims[best_idx]) >= 0.85
+                        and existing_persons[best_idx].id not in matched_person_ids
+                    ):
+                        matched_person = existing_persons[best_idx]
+                        matched_person_ids.add(matched_person.id)
+                        matched_person.centroid = centroid.tolist()
+
+                if matched_person is None:
+                    matched_person = Person(centroid=centroid.tolist())
+                    session.add(matched_person)
+                    await session.flush()
+                    existing_persons.append(matched_person)
+                    existing_centroids = np.vstack([existing_centroids, centroid])
+
+                label_to_person[label] = matched_person
+
+            # ── 6. Bulk-update face assignments ──────────────────────────────
+            for i, face in enumerate(all_faces):
+                label = int(labels[i])
+                face.person_id = label_to_person[label].id if label != -1 else None
+
+            await session.flush()
+
+            # ── 7. Delete orphaned persons ───────────────────────────────────
+            used_ids = {p.id for p in label_to_person.values()}
+            for person in existing_persons:
+                if person.id in used_ids:
+                    continue
+                count_result = await session.execute(
+                    select(func.count()).where(FaceDetection.person_id == person.id)
+                )
+                if count_result.scalar_one() == 0:
+                    await session.delete(person)
+
+    logger.info("cluster_faces: done")
+
+
+# ---------------------------------------------------------------------------
 # Worker settings
 # ---------------------------------------------------------------------------
 
 
 class MLWorkerSettings:
-    """ML worker — fast features every 30s, captions every 5 minutes."""
+    """ML worker — fast features every 30s, captions every 5 minutes, face clustering nightly."""
 
-    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption]
+    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces]
     cron_jobs = [
         cron(ml_flush_batch, second={0, 30}),
         cron(ml_flush_caption, second=0),  # every minute; lock prevents overlap
+        cron(cluster_faces, hour=3, minute=0),  # nightly at 03:00
     ]
     on_startup = ml_startup
     on_shutdown = ml_shutdown

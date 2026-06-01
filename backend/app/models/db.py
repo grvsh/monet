@@ -52,6 +52,9 @@ class User(Base):
     allow_disk_deletion: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    face_cluster_min_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("20")
+    )
 
     # Relationships
     root_prefs: Mapped[list[UserRootPref]] = relationship(
@@ -489,6 +492,9 @@ class Person(Base):
         ForeignKey("face_detections.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Mean of all member face embeddings (L2-normalised). Used to match
+    # clusters to existing persons across re-clustering runs so names are stable.
+    centroid: Mapped[Optional[list[float]]] = mapped_column(Vector(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMPTZ, nullable=False, server_default=text("now()")
     )

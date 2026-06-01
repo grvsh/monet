@@ -9,6 +9,8 @@ import TrashView from './components/gallery/TrashView'
 import SettingsPage from './components/settings/SettingsPage'
 import AlbumView from './components/album/AlbumView'
 import SearchResults from './components/search/SearchResults'
+import FacesPage from './components/faces/FacesPage'
+import FacePersonPage from './components/faces/FacePersonPage'
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.accessToken)
@@ -39,6 +41,8 @@ export default function App() {
         <Route path="albums" element={<AlbumView />} />
         <Route path="albums/:albumId" element={<AlbumView />} />
         <Route path="search" element={<SearchResults />} />
+        <Route path="faces" element={<FacesPage />} />
+        <Route path="faces/:personId" element={<FacePersonPage />} />
         <Route path="trash" element={<TrashView />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>

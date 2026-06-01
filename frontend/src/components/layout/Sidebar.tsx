@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Settings, Trash2, FolderOpen, Images, Search, X, Folder, AlertTriangle, Clock } from 'lucide-react'
+import { Settings, Trash2, FolderOpen, Images, Search, X, Folder, AlertTriangle, Clock, Users } from 'lucide-react'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { format, isToday, isYesterday } from 'date-fns'
 import { cn } from '../../lib/utils'
@@ -435,8 +435,20 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* Bottom: Trash + Settings */}
+      {/* Bottom: Faces + Trash + Settings */}
       <div className="border-t border-neutral-800 px-2 py-2 space-y-0.5">
+        <Link
+          to="/faces"
+          className={cn(
+            'flex items-center gap-2.5 rounded px-3 py-2 text-sm transition-colors',
+            location.pathname.startsWith('/faces')
+              ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40'
+              : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
+          )}
+        >
+          <Users size={16} />
+          <span>People</span>
+        </Link>
         <Link
           to="/trash"
           className={cn(

@@ -7,6 +7,7 @@ export interface UserResponse {
   created_at: string
   last_login_at: string | null
   allow_disk_deletion: boolean
+  face_cluster_min_size: number
 }
 
 export interface RootFolderResponse {
@@ -131,6 +132,17 @@ export interface FsBrowseResponse {
   parent: string | null
   entries: FsEntry[]
   path_is_configured: boolean
+}
+
+export interface PersonResponse {
+  id: string
+  name: string | null
+  face_count: number
+  sample_thumbnail_urls: string[]
+}
+
+export interface PeopleListResponse {
+  people: PersonResponse[]
 }
 
 export interface RootPrefItem {

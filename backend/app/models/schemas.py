@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     created_at: datetime
     last_login_at: datetime | None
     allow_disk_deletion: bool = False
+    face_cluster_min_size: int = 20
 
 
 class TokenResponse(BaseModel):
@@ -323,3 +324,28 @@ class ScanRequest(BaseModel):
 class ScanEnqueueResponse(BaseModel):
     scan_job_ids: list[UUID]
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Faces / People
+# ---------------------------------------------------------------------------
+
+
+class PersonResponse(BaseModel):
+    id: UUID
+    name: str | None
+    face_count: int
+    sample_thumbnail_urls: list[str]
+
+
+class PeopleListResponse(BaseModel):
+    people: list[PersonResponse]
+
+
+class PersonUpdateRequest(BaseModel):
+    name: str | None = None
+
+
+class MergePeopleRequest(BaseModel):
+    source_id: UUID
+    target_id: UUID

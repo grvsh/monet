@@ -31,7 +31,7 @@ export async function getMe(): Promise<UserResponse> {
   return data
 }
 
-export async function patchMyPreferences(prefs: { allow_disk_deletion: boolean }): Promise<UserResponse> {
+export async function patchMyPreferences(prefs: { allow_disk_deletion?: boolean; face_cluster_min_size?: number }): Promise<UserResponse> {
   const { data } = await client.patch<UserResponse>('/api/users/me/preferences', prefs)
   return data
 }
