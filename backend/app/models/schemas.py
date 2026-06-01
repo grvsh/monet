@@ -193,6 +193,8 @@ class FileResponse(BaseModel):
     caption: str | None = None
     trashed_at: datetime | None = None
     missing_since: datetime | None = None
+    face_bbox: dict | None = None
+    face_detection_id: str | None = None
 
 
 class FileDetailResponse(FileResponse):

@@ -58,6 +58,8 @@ export interface FileResponse {
   caption: string | null
   trashed_at: string | null
   missing_since: string | null
+  face_bbox: { x: number; y: number; w: number; h: number } | null
+  face_detection_id: string | null
 }
 
 export interface FileDetailResponse extends FileResponse {

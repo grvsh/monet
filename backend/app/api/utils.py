@@ -2,7 +2,7 @@ from app.models.db import MediaFile
 from app.models.schemas import FileResponse
 
 
-def file_to_response(f: MediaFile) -> FileResponse:
+def file_to_response(f: MediaFile, face_bbox: dict | None = None, face_detection_id: str | None = None) -> FileResponse:
     return FileResponse(
         id=f.id,
         folder_id=f.folder_id,
@@ -29,4 +29,6 @@ def file_to_response(f: MediaFile) -> FileResponse:
         caption=f.caption,
         trashed_at=f.deleted_at,
         missing_since=f.missing_since,
+        face_bbox=face_bbox,
+        face_detection_id=face_detection_id,
     )

@@ -31,6 +31,21 @@ export async function mergePeople(sourceId: string, targetId: string): Promise<P
   return data
 }
 
+export async function unassignDetection(detectionId: string): Promise<void> {
+  await client.delete(`/api/faces/detections/${detectionId}`)
+}
+
 export async function triggerCluster(): Promise<void> {
   await client.post('/api/faces/cluster')
+}
+
+export interface ClusterStatus {
+  running: boolean
+  step?: string
+  pct?: number
+}
+
+export async function getClusterStatus(): Promise<ClusterStatus> {
+  const { data } = await client.get<ClusterStatus>('/api/faces/cluster/status')
+  return data
 }

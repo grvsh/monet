@@ -4,9 +4,10 @@ interface FileThumbnailProps {
   file: Pick<FileResponse, 'has_thumbnail' | 'thumbnail_url' | 'filename'>
   imgClassName?: string
   fallback?: React.ReactNode
+  onNaturalSize?: (w: number, h: number) => void
 }
 
-export function FileThumbnail({ file, imgClassName, fallback }: FileThumbnailProps) {
+export function FileThumbnail({ file, imgClassName, fallback, onNaturalSize }: FileThumbnailProps) {
   if (file.has_thumbnail) {
     return (
       <img
@@ -15,6 +16,10 @@ export function FileThumbnail({ file, imgClassName, fallback }: FileThumbnailPro
         loading="lazy"
         draggable={false}
         className={imgClassName}
+        onLoad={onNaturalSize ? (e) => {
+          const img = e.currentTarget
+          onNaturalSize(img.naturalWidth, img.naturalHeight)
+        } : undefined}
       />
     )
   }

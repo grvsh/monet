@@ -455,6 +455,18 @@ async def _update_scan_counter(
 
 _CLUSTER_LOCK = "ml:cluster_faces_lock"
 _CLUSTER_LOCK_TTL = 3600  # 1 hour max for a cluster run
+_CLUSTER_PROGRESS = "ml:cluster_faces_progress"
+_CLUSTER_PROGRESS_TTL = 3600
+
+
+async def _set_progress(redis: object | None, step: str, pct: int) -> None:
+    if redis:
+        import json
+        await redis.set(  # type: ignore[attr-defined]
+            _CLUSTER_PROGRESS,
+            json.dumps({"step": step, "pct": pct}),
+            ex=_CLUSTER_PROGRESS_TTL,
+        )
 
 
 async def cluster_faces(ctx: dict) -> None:
@@ -469,13 +481,14 @@ async def cluster_faces(ctx: dict) -> None:
         return
 
     try:
-        await _do_cluster_faces()
+        await _do_cluster_faces(redis)
     finally:
         if redis:
             await redis.delete(_CLUSTER_LOCK)
+            await redis.delete(_CLUSTER_PROGRESS)
 
 
-async def _do_cluster_faces() -> None:
+async def _do_cluster_faces(redis: object | None = None) -> None:
     import numpy as np
     from sklearn.cluster import DBSCAN
     from sqlalchemy import func
@@ -485,6 +498,7 @@ async def _do_cluster_faces() -> None:
     async with async_session_factory() as session:
         async with session.begin():
             # ── 1. Load all face embeddings ──────────────────────────────────
+            await _set_progress(redis, "Loading faces", 5)
             result = await session.execute(
                 select(FaceDetection).where(FaceDetection.embedding.isnot(None))
             )
@@ -496,6 +510,7 @@ async def _do_cluster_faces() -> None:
 
             logger.info("cluster_faces: clustering %d face embeddings", len(all_faces))
 
+            await _set_progress(redis, "Preparing embeddings", 15)
             embeddings = np.array([f.embedding for f in all_faces], dtype=np.float32)
 
             # ── 2. L2-normalise (euclidean on unit vecs == cosine distance) ──
@@ -504,6 +519,7 @@ async def _do_cluster_faces() -> None:
 
             # ── 3. DBSCAN ────────────────────────────────────────────────────
             # eps=0.95 on L2-normalised ≈ cosine distance 0.45 threshold
+            await _set_progress(redis, "Clustering faces", 30)
             clustering = DBSCAN(
                 eps=0.95,
                 min_samples=2,
@@ -518,6 +534,7 @@ async def _do_cluster_faces() -> None:
                         n_clusters, int((labels == -1).sum()))
 
             # ── 4. Load existing persons for centroid matching ───────────────
+            await _set_progress(redis, f"Matching {n_clusters} clusters", 60)
             persons_result = await session.execute(
                 select(Person).where(Person.centroid.isnot(None))
             )
@@ -563,6 +580,7 @@ async def _do_cluster_faces() -> None:
                 label_to_person[label] = matched_person
 
             # ── 6. Bulk-update face assignments ──────────────────────────────
+            await _set_progress(redis, "Saving assignments", 85)
             for i, face in enumerate(all_faces):
                 label = int(labels[i])
                 face.person_id = label_to_person[label].id if label != -1 else None
@@ -570,6 +588,7 @@ async def _do_cluster_faces() -> None:
             await session.flush()
 
             # ── 7. Delete orphaned persons ───────────────────────────────────
+            await _set_progress(redis, "Cleaning up", 95)
             used_ids = {p.id for p in label_to_person.values()}
             for person in existing_persons:
                 if person.id in used_ids:

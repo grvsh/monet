@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, RefreshCw, Check } from 'lucide-react'
-import { listPeople, triggerCluster } from '../../api/faces'
+import { Users, RefreshCw } from 'lucide-react'
+import { listPeople, triggerCluster, getClusterStatus } from '../../api/faces'
 import type { PersonResponse } from '../../types/api'
 import { Spinner } from '../ui/Spinner'
 import { cn } from '../../lib/utils'
@@ -52,7 +52,6 @@ function PersonCard({ person }: { person: PersonResponse }) {
 
 export default function FacesPage() {
   const queryClient = useQueryClient()
-  const [clustered, setClustered] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['people'],
@@ -60,14 +59,27 @@ export default function FacesPage() {
     staleTime: 60_000,
   })
 
+  const { data: clusterStatus } = useQuery({
+    queryKey: ['clusterStatus'],
+    queryFn: getClusterStatus,
+    refetchInterval: (query) => (query.state.data?.running ? 1500 : false),
+    staleTime: 0,
+  })
+
+  const isRunning = clusterStatus?.running ?? false
+  const prevRunning = useRef(false)
+
+  useEffect(() => {
+    if (prevRunning.current && !isRunning) {
+      queryClient.invalidateQueries({ queryKey: ['people'] })
+    }
+    prevRunning.current = isRunning
+  }, [isRunning, queryClient])
+
   const clusterMutation = useMutation({
     mutationFn: triggerCluster,
     onSuccess: () => {
-      setClustered(true)
-      setTimeout(() => {
-        setClustered(false)
-        queryClient.invalidateQueries({ queryKey: ['people'] })
-      }, 3000)
+      queryClient.invalidateQueries({ queryKey: ['clusterStatus'] })
     },
   })
 
@@ -88,25 +100,39 @@ export default function FacesPage() {
         <button
           type="button"
           onClick={() => clusterMutation.mutate()}
-          disabled={clusterMutation.isPending || clustered}
+          disabled={clusterMutation.isPending || isRunning}
           className={cn(
             'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-            clustered
-              ? 'bg-green-900/40 text-green-400 border border-green-700/40'
+            isRunning
+              ? 'bg-blue-900/40 text-blue-400 border border-blue-700/40 cursor-not-allowed'
               : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 border border-neutral-700'
           )}
           title="Re-run face clustering to update groups"
         >
-          {clusterMutation.isPending ? (
+          {isRunning || clusterMutation.isPending ? (
             <Spinner size="sm" />
-          ) : clustered ? (
-            <Check size={13} />
           ) : (
             <RefreshCw size={13} />
           )}
-          {clustered ? 'Queued' : 'Re-cluster'}
+          {isRunning ? 'Clustering…' : 'Re-cluster'}
         </button>
       </div>
+
+      {/* Cluster progress bar */}
+      {isRunning && clusterStatus && (
+        <div className="px-6 py-3 border-b border-neutral-800 bg-neutral-900/60 shrink-0">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-neutral-400">{clusterStatus.step}</span>
+            <span className="text-xs text-neutral-500">{clusterStatus.pct}%</span>
+          </div>
+          <div className="h-1 rounded-full bg-neutral-800 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-blue-500 transition-all duration-500"
+              style={{ width: `${clusterStatus.pct}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Music, Video, ImageOff, Download } from 'lucide-react'
 import type { FileResponse } from '../../types/api'
 import { formatDate, formatDuration } from '../../lib/utils'
@@ -14,6 +14,7 @@ interface MediaTileProps {
   selected: boolean
   anySelected: boolean
   onSelect: (id: string, shiftKey: boolean) => void
+  faceBbox?: { x: number; y: number; w: number; h: number } | null
 }
 
 
@@ -62,9 +63,60 @@ function DownloadMenu({ file, onClose }: { file: FileResponse; onClose: () => vo
   )
 }
 
-export default function MediaTile({ file, onClick, imageSize, selected, onSelect }: MediaTileProps) {
+// The ML service resizes images to this longest-side before running face detection.
+// Must match monet_ml_image_size in backend config (default 768).
+const ML_IMAGE_SIZE = 768
+
+function FaceBboxOverlay({
+  bbox,
+  origMaxSide,
+  thumbW,
+  thumbH,
+  displaySize,
+}: {
+  bbox: { x: number; y: number; w: number; h: number }
+  origMaxSide: number   // max(file.width, file.height) — used to derive ML image size
+  thumbW: number        // thumbnail natural width (exif-corrected, from onLoad)
+  thumbH: number        // thumbnail natural height
+  displaySize: number
+}) {
+  // ML input max side: image was resized to ML_IMAGE_SIZE if larger, otherwise kept as-is.
+  const mlMaxSide = Math.min(ML_IMAGE_SIZE, origMaxSide)
+  // Scale factor from ML input space to thumbnail space (both have same aspect ratio).
+  const thumbMaxSide = Math.max(thumbW, thumbH)
+  const mlToThumb = thumbMaxSide / mlMaxSide
+
+  // bbox in thumbnail space
+  const bx = bbox.x * mlToThumb
+  const by = bbox.y * mlToThumb
+  const bw = bbox.w * mlToThumb
+  const bh = bbox.h * mlToThumb
+
+  // object-cover: scale thumbnail to fill displaySize × displaySize
+  const coverScale = Math.max(displaySize / thumbW, displaySize / thumbH)
+  const offsetX = (displaySize - thumbW * coverScale) / 2
+  const offsetY = (displaySize - thumbH * coverScale) / 2
+
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{
+        left: bx * coverScale + offsetX,
+        top: by * coverScale + offsetY,
+        width: bw * coverScale,
+        height: bh * coverScale,
+        boxShadow: '0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3px rgba(59,130,246,0.8)',
+        borderRadius: 2,
+      }}
+    />
+  )
+}
+
+export default function MediaTile({ file, onClick, imageSize, selected, onSelect, faceBbox }: MediaTileProps) {
   const dateLabel = file.taken_at ? formatDate(file.taken_at) : null
   const [showDownload, setShowDownload] = useState(false)
+  const [thumbNatural, setThumbNatural] = useState<{ w: number; h: number } | null>(null)
+  const onNaturalSize = useCallback((w: number, h: number) => setThumbNatural({ w, h }), [])
 
 
   return (
@@ -107,6 +159,7 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
           <FileThumbnail
             file={file}
             imgClassName="w-full h-full object-cover rounded transition-transform duration-200 group-hover:scale-[1.02]"
+            onNaturalSize={faceBbox ? onNaturalSize : undefined}
             fallback={
               <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-neutral-800 rounded">
                 {file.media_type === 'video' ? (
@@ -116,6 +169,17 @@ export default function MediaTile({ file, onClick, imageSize, selected, onSelect
                 )}
               </div>
             }
+          />
+        )}
+
+        {/* Face bounding box overlay */}
+        {faceBbox && thumbNatural && file.width && file.height && (
+          <FaceBboxOverlay
+            bbox={faceBbox}
+            origMaxSide={Math.max(file.width, file.height)}
+            thumbW={thumbNatural.w}
+            thumbH={thumbNatural.h}
+            displaySize={imageSize}
           />
         )}
 

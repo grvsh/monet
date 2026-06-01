@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Pencil, Check, X, GitMerge, Users } from 'lucide-react'
-import { getPerson, getPersonFiles, updatePerson, mergePeople, listPeople } from '../../api/faces'
+import { ArrowLeft, Pencil, Check, X, GitMerge, Users, UserMinus } from 'lucide-react'
+import { getPerson, getPersonFiles, updatePerson, mergePeople, listPeople, unassignDetection } from '../../api/faces'
 import type { PersonResponse } from '../../types/api'
 import { useGalleryStore } from '../../store/gallery'
 import MediaTile from '../gallery/MediaTile'
@@ -213,6 +213,15 @@ export default function FacePersonPage() {
   const [mergeOpen, setMergeOpen] = useState(false)
   const [localName, setLocalName] = useState<string | null | undefined>(undefined)
 
+  const unassignMutation = useMutation({
+    mutationFn: (detectionId: string) => unassignDetection(detectionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['person-files', personId] })
+      queryClient.invalidateQueries({ queryKey: ['person', personId] })
+      queryClient.invalidateQueries({ queryKey: ['people'] })
+    },
+  })
+
   useEffect(() => { setLightboxIndex(-1) }, [setLightboxIndex])
 
   const { data: person, isLoading: personLoading } = useQuery({
@@ -303,7 +312,7 @@ export default function FacePersonPage() {
         {files.length > 0 && (
           <div className="flex flex-wrap" style={{ gap: GAP }}>
             {files.map((file, index) => (
-              <div key={file.id} style={{ width: TILE_SIZE, height: TILE_SIZE + 52, flexShrink: 0 }}>
+              <div key={file.id} className="group/tile relative" style={{ width: TILE_SIZE, height: TILE_SIZE + 52, flexShrink: 0 }}>
                 <MediaTile
                   file={file}
                   imageSize={TILE_SIZE}
@@ -311,7 +320,23 @@ export default function FacePersonPage() {
                   selected={selectedIds.has(file.id)}
                   anySelected={selectedIds.size > 0}
                   onSelect={(id) => toggleSelection(id)}
+                  faceBbox={file.face_bbox}
                 />
+                {file.face_detection_id && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      unassignMutation.mutate(file.face_detection_id!)
+                    }}
+                    disabled={unassignMutation.isPending}
+                    className="absolute bottom-[54px] left-1/2 -translate-x-1/2 flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-black/70 text-white border border-white/20 opacity-0 group-hover/tile:opacity-100 transition-opacity hover:bg-red-600/80 hover:border-red-400/40 whitespace-nowrap"
+                    title="Remove this face from person"
+                  >
+                    <UserMinus size={11} />
+                    Not this person
+                  </button>
+                )}
               </div>
             ))}
           </div>

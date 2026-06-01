@@ -64,7 +64,10 @@ async def list_people(
         )
         .group_by(Person.id)
         .having(func.count(FaceDetection.id) >= min_count)
-        .order_by(func.count(FaceDetection.id).desc())
+        .order_by(
+            func.case((Person.name.isnot(None), 0), else_=1).asc(),
+            func.count(FaceDetection.id).desc(),
+        )
     )
     result = await session.execute(stmt)
     rows = result.all()
@@ -163,13 +166,44 @@ async def get_person_files(
     result = await session.execute(stmt)
     files = result.scalars().all()
 
+    # Fetch one detection (bbox + id) per file for this person
+    file_ids = [f.id for f in files]
+    bbox_map: dict[uuid.UUID, dict] = {}
+    detection_id_map: dict[uuid.UUID, str] = {}
+    if file_ids:
+        bbox_rows = await session.execute(
+            select(FaceDetection.id, FaceDetection.file_id, FaceDetection.bbox)
+            .where(FaceDetection.person_id == person_id, FaceDetection.file_id.in_(file_ids))
+            .distinct(FaceDetection.file_id)
+        )
+        for row in bbox_rows.all():
+            bbox_map[row.file_id] = row.bbox
+            detection_id_map[row.file_id] = str(row.id)
+
     return PaginatedFiles(
-        items=[file_to_response(f) for f in files],
+        items=[
+            file_to_response(f, face_bbox=bbox_map.get(f.id), face_detection_id=detection_id_map.get(f.id))
+            for f in files
+        ],
         total=total,
         page=page,
         page_size=page_size,
         pages=max(1, (total + page_size - 1) // page_size),
     )
+
+
+@router.delete("/detections/{detection_id}", status_code=204)
+async def unassign_detection(
+    detection_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Remove a face detection from its person (set person_id = NULL)."""
+    detection = await session.get(FaceDetection, detection_id)
+    if not detection:
+        raise HTTPException(status_code=404, detail="Detection not found")
+    detection.person_id = None
+    await session.commit()
 
 
 @router.patch("/people/{person_id}", response_model=PersonResponse)
@@ -283,6 +317,30 @@ async def merge_people(
     return _build_person_response(target, face_count, sample_urls)
 
 
+@router.get("/cluster/status")
+async def cluster_status(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return current clustering progress, or idle if no job is running."""
+    try:
+        import json
+
+        from app.redis_client import get_redis
+
+        redis = await get_redis()
+        lock = await redis.get("ml:cluster_faces_lock")
+        if not lock:
+            return {"running": False}
+        progress_raw = await redis.get("ml:cluster_faces_progress")
+        if progress_raw:
+            progress = json.loads(progress_raw)
+        else:
+            progress = {"step": "Starting", "pct": 0}
+        return {"running": True, **progress}
+    except Exception:
+        return {"running": False}
+
+
 @router.post("/cluster", status_code=202)
 async def trigger_cluster(
     current_user: User = Depends(get_current_user),
@@ -294,7 +352,7 @@ async def trigger_cluster(
         from app.config import settings as app_settings
 
         arq = await create_pool(RedisSettings.from_dsn(app_settings.redis_url))
-        await arq.enqueue_job("cluster_faces")
+        await arq.enqueue_job("cluster_faces", _queue_name="arq:ml-queue")
         await arq.aclose()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Could not enqueue job: {exc}") from exc
