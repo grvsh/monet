@@ -106,6 +106,35 @@ async def download_preview(
     )
 
 
+@router.get("/video-preview/{file_id}")
+async def get_video_preview(
+    file_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> FileResponse:
+    """Serve the transcoded 1080p preview MP4 for a video file."""
+    media_file = await session.get(MediaFile, file_id)
+    if not media_file or media_file.is_deleted:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if not media_file.video_preview_path:
+        raise HTTPException(status_code=404, detail="video_preview_pending")
+
+    root = await session.get(RootFolder, media_file.root_folder_id)
+    if not root:
+        raise HTTPException(status_code=404, detail="Root folder not found")
+
+    abs_path = Path(root.path) / media_file.video_preview_path
+    if not abs_path.exists():
+        raise HTTPException(status_code=404, detail="video_preview_pending")
+
+    return FileResponse(
+        path=str(abs_path),
+        media_type="video/mp4",
+        filename=abs_path.name,
+    )
+
+
 @router.get("/stream/{file_id}")
 async def stream_original(
     file_id: uuid.UUID,

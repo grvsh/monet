@@ -4,7 +4,7 @@ from arq.connections import RedisSettings, create_pool
 from arq import cron
 
 from app.config import settings
-from app.workers.tasks import extract_metadata, geocode_missing, generate_assets, scan_folder, purge_old_trash
+from app.workers.tasks import extract_metadata, geocode_missing, generate_assets, generate_video_preview, scan_folder, purge_old_trash
 import exiftool
 
 
@@ -56,11 +56,11 @@ class AssetWorkerSettings:
     Uses a separate queue so heavy processing never starves scan_folder tasks.
     """
 
-    functions = [generate_assets, extract_metadata]
+    functions = [generate_assets, extract_metadata, generate_video_preview]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = settings.monet_worker_concurrency
-    job_timeout = 600
+    job_timeout = 3600  # video transcode can take ~10 min per clip
     keep_result = 3600
     queue_name = "arq:asset-queue"

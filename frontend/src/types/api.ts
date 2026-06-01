@@ -50,9 +50,11 @@ export interface FileResponse {
   has_gps: boolean
   has_thumbnail: boolean
   has_preview: boolean
+  has_video_preview: boolean
   size_bytes: number | null
   thumbnail_url: string
   preview_url: string
+  video_preview_url: string | null
   lens_model: string | null
   location: string | null
   caption: string | null

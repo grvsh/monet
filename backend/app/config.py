@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     monet_file_settle_seconds: int = 2
     monet_cors_origins: list[str] = ["http://localhost:5173", "http://localhost:8000"]
 
+    # ── Video preview transcoding ──────────────────────────────────────────────
+    monet_video_preview_enabled: bool = True
+    monet_video_preview_crf: int = 21
+    monet_video_preview_preset: str = "slow"
+
     # ── ML service ─────────────────────────────────────────────────────────────
     # URL of the monet-ml FastAPI service. Leave empty to disable ML features.
     monet_ml_service_url: str = ""

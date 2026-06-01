@@ -215,6 +215,49 @@ def _process_video(
     return orig_w, orig_h
 
 
+async def generate_video_preview(
+    abs_src: str,
+    abs_dst: Path,
+    crf: int = 21,
+    preset: str = "slow",
+) -> None:
+    """Transcode a video to a web-optimised 1080p H.264/AAC MP4 next to the original.
+
+    Skips silently if the destination already exists (idempotent).
+    Runs the blocking ffmpeg call in a thread-pool executor.
+    """
+    if abs_dst.exists():
+        return
+    abs_dst.parent.mkdir(parents=True, exist_ok=True)
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _transcode_video, abs_src, abs_dst, crf, preset)
+
+
+def _transcode_video(abs_src: str, abs_dst: Path, crf: int, preset: str) -> None:
+    tmp = abs_dst.with_suffix(".tmp.mp4")
+    try:
+        (
+            ffmpeg.input(abs_src)
+            .output(
+                str(tmp),
+                vcodec="libx264",
+                crf=crf,
+                preset=preset,
+                vf="scale=1920:1080:flags=lanczos",
+                acodec="aac",
+                audio_bitrate="192k",
+                movflags="+faststart",
+            )
+            .overwrite_output()
+            .run(quiet=True)
+        )
+        tmp.rename(abs_dst)
+    except Exception:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+        raise
+
+
 def _process_audio(
     abs_path: str,
     thumb_path: Path,

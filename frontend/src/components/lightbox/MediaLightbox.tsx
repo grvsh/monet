@@ -18,9 +18,12 @@ interface MediaLightboxProps {
 function buildSlides(files: FileResponse[]) {
   return files.map((file) => {
     if (file.media_type === 'video') {
+      const videoSrc = file.has_video_preview && file.video_preview_url
+        ? file.video_preview_url
+        : `/api/stream/${file.id}`
       return {
         type: 'video' as const,
-        sources: [{ src: `/api/stream/${file.id}`, type: file.mime_type }],
+        sources: [{ src: videoSrc, type: 'video/mp4' }],
         poster: file.has_thumbnail ? file.thumbnail_url : undefined,
         description: file.filename,
         _fileId: file.id,

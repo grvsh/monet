@@ -17,7 +17,7 @@ from app.models.db import FileMetadata, MediaFile, RootFolder, ScanJob
 from app.services.indexer import get_or_create_folder
 from app.services.media import get_media_type, is_raw, thumbnail_cache_path, preview_cache_path
 from app.services.metadata import extract_metadata as _extract_metadata, parse_denormalized
-from app.services.processor import generate_thumbnail_and_preview
+from app.services.processor import generate_thumbnail_and_preview, generate_video_preview as _generate_video_preview
 
 
 def _ml_features_stale(ai_versions: dict | None, manifest: dict) -> bool:
@@ -85,7 +85,12 @@ async def scan_folder(
                 except PermissionError:
                     return
 
-                subdirs = [e for e in entries if e.is_dir(follow_symlinks=False) and not e.name.startswith('.')]
+                subdirs = [
+                    e for e in entries
+                    if e.is_dir(follow_symlinks=False)
+                    and not e.name.startswith('.')
+                    and not e.name.startswith('_monet_preview')
+                ]
                 file_entries = [e for e in entries if e.is_file(follow_symlinks=False)]
 
                 files_found = 0
@@ -427,6 +432,52 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                     scan_job_id_str,
                     _queue_name="arq:ml-queue",
                 )
+
+            # Enqueue video preview transcode for video files.
+            if arq and media_file.media_type == "video" and settings.monet_video_preview_enabled:
+                await arq.enqueue_job(
+                    "generate_video_preview",
+                    str(file_id),
+                    _queue_name="arq:asset-queue",
+                )
+
+
+async def generate_video_preview(ctx: dict, file_id_str: str) -> None:
+    """ARQ task: transcode a video to a web-optimised 1080p H.264/AAC MP4."""
+    file_id = uuid.UUID(file_id_str)
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            media_file = await session.get(MediaFile, file_id)
+            if not media_file or media_file.is_deleted or media_file.media_type != "video":
+                return
+
+            root = await session.get(RootFolder, media_file.root_folder_id)
+            if not root:
+                return
+
+            abs_src = str(Path(root.path) / media_file.path)
+            stem = Path(media_file.filename).stem
+            video_dir = Path(media_file.path).parent
+            preview_rel = str(video_dir / "_monet_preview_videos" / f"{stem}_preview.mp4")
+            abs_dst = Path(root.path) / preview_rel
+
+            # Skip if already done and file is on disk.
+            if media_file.video_preview_path and abs_dst.exists():
+                return
+
+            try:
+                await _generate_video_preview(
+                    abs_src,
+                    abs_dst,
+                    crf=settings.monet_video_preview_crf,
+                    preset=settings.monet_video_preview_preset,
+                )
+            except Exception:
+                logger.exception("generate_video_preview failed for %s", abs_src)
+                return
+
+            media_file.video_preview_path = preview_rel
 
 
 async def geocode_missing(ctx: dict) -> None:

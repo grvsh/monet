@@ -185,9 +185,11 @@ class FileResponse(BaseModel):
     has_gps: bool
     has_thumbnail: bool
     has_preview: bool
+    has_video_preview: bool
     size_bytes: int | None
     thumbnail_url: str
     preview_url: str
+    video_preview_url: str | None
     lens_model: str | None
     location: str | None
     caption: str | None = None
