@@ -124,7 +124,7 @@ services:
     volumes:
       - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
       - /path/to/example-images:/path/to/example-images:ro
-      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
+      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal
     command: python -m arq app.workers.worker.AssetWorkerSettings
 
   # ML analysis worker — CPU only, calls the ml-service over HTTP.
