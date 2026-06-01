@@ -127,7 +127,6 @@ def _run_nvenc(src: Path, dst: Path, crf: int, preset: str) -> None:
         subprocess.run(
             [
                 "ffmpeg", "-y",
-                "-hwaccel", "cuda",
                 "-i", str(src),
                 "-vf", "scale=1920:1080:flags=lanczos",
                 "-vcodec", "h264_nvenc",

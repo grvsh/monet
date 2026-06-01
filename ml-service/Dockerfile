@@ -8,17 +8,24 @@ FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime AS base
 
 # libgl1 + libglib2.0-0: required by OpenCV (InsightFace/YOLO internal dep)
 # libgomp1: required by numpy/torch OpenMP kernels
+# wget + xz-utils: needed to fetch the static ffmpeg build below
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
+    wget \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# ffmpeg with NVENC support via conda-forge. The conda base is pre-installed
-# in the pytorch/pytorch image. NVENC runtime libs come from the host NVIDIA
-# driver via nvidia-container-toolkit — no extra packages needed.
-RUN /opt/conda/bin/conda install -y -c conda-forge ffmpeg \
-    && /opt/conda/bin/conda clean -afy
+# Static ffmpeg build from BtbN/FFmpeg-Builds (GPL, linux-amd64).
+# Uses dlopen to load libnvidia-encode.so.1 from the host driver at runtime —
+# no host lib mounts required. Single self-contained binary, no shared-lib deps.
+RUN wget -q -O /tmp/ffmpeg.tar.xz \
+      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" \
+    && tar -xf /tmp/ffmpeg.tar.xz -C /usr/local/bin \
+         --strip-components=2 ffmpeg-master-latest-linux64-gpl/bin/ffmpeg \
+    && chmod +x /usr/local/bin/ffmpeg \
+    && rm /tmp/ffmpeg.tar.xz
 
 # Non-root user — matches the pattern used in the main backend image
 RUN groupadd -r monet && useradd -r -g monet -d /app -s /sbin/nologin monet

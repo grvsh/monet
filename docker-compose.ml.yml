@@ -36,7 +36,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
     ports:
       - "${ML_SERVICE_PORT:-8100}:8100"
