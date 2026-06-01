@@ -46,8 +46,20 @@ services:
       ML_BATCH_SIZE: ${ML_BATCH_SIZE:-32}
       # Remove features from this list to disable their model and free VRAM.
       ML_ENABLED_FEATURES: ${ML_ENABLED_FEATURES:-clip_embedding,dino_embedding,caption,faces,objects,aesthetic_score}
+      # 0 = auto-detect NVENC engine count from nvidia-smi (2 per RTX 40xx GPU).
+      ML_VIDEO_ENCODER_CONCURRENCY: ${ML_VIDEO_ENCODER_CONCURRENCY:-0}
     volumes:
       - ml_models:/models
+      # Media library — must be mounted at the same path as on the main Monet
+      # machine so that absolute paths passed in /video/transcode requests
+      # resolve correctly on gpu-machine.
+      #
+      # Set up NFS on the main machine:
+      #   /etc/exports: /mnt/raid1_disks  gpu-machine-ip(rw,sync,no_subtree_check)
+      #   exportfs -ra
+      # Then on gpu-machine:
+      #   mount -t nfs main-ip:/mnt/raid1_disks /mnt/raid1_disks
+      - /mnt/raid1_disks:/mnt/raid1_disks
     healthcheck:
       test:
         - "CMD"

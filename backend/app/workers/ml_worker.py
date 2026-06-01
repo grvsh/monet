@@ -16,6 +16,7 @@ from sqlalchemy import select, update
 from app.config import settings
 from app.database import async_session_factory
 from app.models.db import FaceDetection, MediaFile, RootFolder, ScanJob
+from app.services.processor import generate_video_preview as _cpu_transcode
 
 logger = logging.getLogger(__name__)
 
@@ -611,6 +612,81 @@ async def _do_cluster_faces(redis: object | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Video preview generation (GPU on ml-service, CPU fallback)
+# ---------------------------------------------------------------------------
+
+
+async def generate_video_preview(ctx: dict, file_id_str: str) -> None:
+    """ARQ task: transcode a video to a web-optimised 1080p H.264/AAC MP4.
+
+    First tries GPU NVENC via the ml-service /video/transcode endpoint.
+    Falls back to local CPU ffmpeg (libx264) if the service is unreachable
+    or returns an error.
+    """
+    file_id = uuid.UUID(file_id_str)
+
+    async with async_session_factory() as session:
+        async with session.begin():
+            media_file = await session.get(MediaFile, file_id)
+            if not media_file or media_file.is_deleted or media_file.media_type != "video":
+                return
+
+            root = await session.get(RootFolder, media_file.root_folder_id)
+            if not root:
+                return
+
+            abs_src = str(Path(root.path) / media_file.path)
+            stem = Path(media_file.filename).stem
+            video_dir = Path(media_file.path).parent
+            preview_rel = str(video_dir / "_monet_preview_videos" / f"{stem}_preview.mp4")
+            abs_dst = Path(root.path) / preview_rel
+
+            if media_file.video_preview_path and abs_dst.exists():
+                return
+
+            gpu_ok = await _try_gpu_transcode(abs_src, str(abs_dst))
+            if not gpu_ok:
+                try:
+                    await _cpu_transcode(
+                        abs_src,
+                        abs_dst,
+                        crf=settings.monet_video_preview_crf,
+                        preset=settings.monet_video_preview_preset,
+                    )
+                except Exception:
+                    logger.exception("CPU transcode fallback failed for %s", abs_src)
+                    return
+
+            media_file.video_preview_path = preview_rel
+
+
+async def _try_gpu_transcode(abs_src: str, abs_dst: str) -> bool:
+    """POST to ml-service /video/transcode. Returns True on success."""
+    if not settings.monet_ml_service_url:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=3600) as client:
+            resp = await client.post(
+                f"{settings.monet_ml_service_url}/video/transcode",
+                json={
+                    "src": abs_src,
+                    "dst": abs_dst,
+                    "crf": settings.monet_video_preview_crf,
+                    "preset": "p5",
+                },
+                headers=_build_headers(),
+            )
+            resp.raise_for_status()
+            return True
+    except Exception:
+        logger.warning(
+            "GPU transcode unavailable for %s — falling back to CPU", abs_src,
+            exc_info=True,
+        )
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Worker settings
 # ---------------------------------------------------------------------------
 
@@ -618,7 +694,7 @@ async def _do_cluster_faces(redis: object | None = None) -> None:
 class MLWorkerSettings:
     """ML worker — fast features every 30s, captions every 5 minutes, face clustering nightly."""
 
-    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces]
+    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces, generate_video_preview]
     cron_jobs = [
         cron(ml_flush_batch, second={0, 30}),
         cron(ml_flush_caption, second=0),  # every minute; lock prevents overlap
@@ -628,6 +704,6 @@ class MLWorkerSettings:
     on_shutdown = ml_shutdown
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 16
-    job_timeout = 600
+    job_timeout = 3600  # video transcode can take up to ~1 h for long clips
     keep_result = 3600
     queue_name = "arq:ml-queue"

@@ -14,6 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# ffmpeg with NVENC support via conda-forge. The conda base is pre-installed
+# in the pytorch/pytorch image. NVENC runtime libs come from the host NVIDIA
+# driver via nvidia-container-toolkit — no extra packages needed.
+RUN /opt/conda/bin/conda install -y -c conda-forge ffmpeg \
+    && /opt/conda/bin/conda clean -afy
+
 # Non-root user — matches the pattern used in the main backend image
 RUN groupadd -r monet && useradd -r -g monet -d /app -s /sbin/nologin monet
 

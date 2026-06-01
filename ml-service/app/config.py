@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     ml_api_key: str = ""
     ml_batch_size: int = 32
+    # Maximum concurrent NVENC transcode sessions. 0 = auto-detect from GPU.
+    ml_video_encoder_concurrency: int = 0
     # Comma-separated list of features to enable. Remove a feature to skip
     # loading its model and free VRAM.
     ml_enabled_features: str = (
