@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -18,6 +19,15 @@ from app.services.indexer import get_or_create_folder
 from app.services.media import get_media_type, is_raw, thumbnail_cache_path, preview_cache_path
 from app.services.metadata import extract_metadata as _extract_metadata, parse_denormalized
 from app.services.processor import generate_thumbnail_and_preview, generate_video_preview as _generate_video_preview
+
+_video_preview_sem: asyncio.Semaphore | None = None
+
+
+def _get_video_preview_sem() -> asyncio.Semaphore:
+    global _video_preview_sem
+    if _video_preview_sem is None:
+        _video_preview_sem = asyncio.Semaphore(settings.monet_video_preview_concurrency)
+    return _video_preview_sem
 
 
 def _ml_features_stale(ai_versions: dict | None, manifest: dict) -> bool:
@@ -467,12 +477,13 @@ async def generate_video_preview(ctx: dict, file_id_str: str) -> None:
                 return
 
             try:
-                await _generate_video_preview(
-                    abs_src,
-                    abs_dst,
-                    crf=settings.monet_video_preview_crf,
-                    preset=settings.monet_video_preview_preset,
-                )
+                async with _get_video_preview_sem():
+                    await _generate_video_preview(
+                        abs_src,
+                        abs_dst,
+                        crf=settings.monet_video_preview_crf,
+                        preset=settings.monet_video_preview_preset,
+                    )
             except Exception:
                 logger.exception("generate_video_preview failed for %s", abs_src)
                 return

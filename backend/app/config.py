@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     monet_video_preview_enabled: bool = True
     monet_video_preview_crf: int = 21
     monet_video_preview_preset: str = "slow"
+    monet_video_preview_concurrency: int = 3
 
     # ── ML service ─────────────────────────────────────────────────────────────
     # URL of the monet-ml FastAPI service. Leave empty to disable ML features.

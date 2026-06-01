@@ -234,7 +234,7 @@ async def generate_video_preview(
 
 
 def _transcode_video(abs_src: str, abs_dst: Path, crf: int, preset: str) -> None:
-    # Limit to 2 threads per job so 4 concurrent encodes fit neatly on 8 cores.
+    # Limit to 2 threads per job so 3 concurrent encodes use 6 cores, leaving 2 free.
     threads = max(1, os.cpu_count() // 4) if os.cpu_count() else 2
     tmp = abs_dst.with_suffix(".tmp.mp4")
     try:
