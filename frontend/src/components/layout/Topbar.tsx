@@ -3,6 +3,7 @@ import { useLocation, Link, useParams, useNavigate, useSearchParams } from 'reac
 import { LogOut, User, Search, MoreHorizontal } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 import { useGalleryStore } from '../../store/gallery'
+import { useRecentSearchesStore } from '../../store/recentSearches'
 import { logout } from '../../api/auth'
 import { useQuery } from '@tanstack/react-query'
 import { listRootFolders } from '../../api/rootFolders'
@@ -54,6 +55,7 @@ export default function Topbar() {
   const currentFolderId = useGalleryStore((s) => s.currentFolderId)
   const currentAlbumId = useGalleryStore((s) => s.currentAlbumId)
   const setLightboxIndex = useGalleryStore((s) => s.setLightboxIndex)
+  const addRecentSearch = useRecentSearchesStore((s) => s.add)
   const breadcrumbs = useBreadcrumbs()
   const navigate = useNavigate()
   const location = useLocation()
@@ -111,6 +113,7 @@ export default function Topbar() {
       if (currentFolderId) params.set('folder_id', currentFolderId)
       else if (currentAlbumId) params.set('album_id', currentAlbumId)
     }
+    try { addRecentSearch(q) } catch { /* non-critical */ }
     setLightboxIndex(-1)
     navigate(`/search?${params.toString()}`)
     setMenuOpen(false)

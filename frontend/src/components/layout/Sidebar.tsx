@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Settings, Trash2, FolderOpen, Images, Search, X, Folder, AlertTriangle } from 'lucide-react'
+import { Settings, Trash2, FolderOpen, Images, Search, X, Folder, AlertTriangle, Clock } from 'lucide-react'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
+import { format, isToday, isYesterday } from 'date-fns'
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../store/auth'
 import { useFolderTree } from '../../hooks/useFolderTree'
@@ -12,6 +13,7 @@ import { searchFolders } from '../../api/folders'
 import { Spinner } from '../ui/Spinner'
 import { Badge } from '../ui/Badge'
 import type { RootFolderResponse } from '../../types/api'
+import { useRecentSearchesStore } from '../../store/recentSearches'
 
 
 interface RootFolderTreeProps {
@@ -161,13 +163,74 @@ function FolderSearchResults({
   )
 }
 
+function formatSearchTime(isoString: string): string {
+  const date = new Date(isoString)
+  if (isToday(date)) return `Today at ${format(date, 'h:mm a')}`
+  if (isYesterday(date)) return `Yesterday at ${format(date, 'h:mm a')}`
+  return format(date, 'MMM d, yyyy · h:mm a')
+}
+
+function RecentSearchesPanel() {
+  const navigate = useNavigate()
+  const { searches, remove, clear } = useRecentSearchesStore()
+
+  if (searches.length === 0) {
+    return (
+      <p className="px-4 py-6 text-xs text-neutral-500 text-center">
+        No recent searches yet.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-3 pb-1.5 shrink-0">
+        <span className="text-xs text-neutral-500">{searches.length} search{searches.length !== 1 ? 'es' : ''}</span>
+        <button
+          type="button"
+          onClick={clear}
+          className="text-xs text-neutral-600 hover:text-neutral-400 transition-colors"
+        >
+          Clear all
+        </button>
+      </div>
+      <ul className="space-y-0.5 px-2 overflow-y-auto">
+        {searches.map((s) => (
+          <li key={s.id} className="group flex items-start gap-1.5 rounded px-2 py-1.5 hover:bg-neutral-800 transition-colors">
+            <button
+              type="button"
+              onClick={() => navigate(`/search?q=${encodeURIComponent(s.query)}`)}
+              className="flex items-start gap-2 flex-1 min-w-0 text-left"
+            >
+              <Search size={12} className="shrink-0 mt-0.5 text-neutral-500" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-neutral-200 truncate">{s.query}</p>
+                <p className="text-xs text-neutral-600 mt-0.5">{formatSearchTime(s.timestamp)}</p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => remove(s.id)}
+              title="Remove"
+              className="shrink-0 mt-0.5 text-neutral-700 hover:text-neutral-400 opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-label="Remove search"
+            >
+              <X size={12} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 const MIN_WIDTH = 160
 const MAX_WIDTH = 480
 const DEFAULT_WIDTH = 260
 const STORAGE_KEY = 'monet-sidebar-width'
 const TAB_KEY = 'monet-sidebar-tab'
 
-type SidebarTab = 'folders' | 'albums'
+type SidebarTab = 'folders' | 'albums' | 'searches'
 
 function getSavedWidth(): number {
   try {
@@ -184,6 +247,7 @@ function getSavedTab(): SidebarTab {
   try {
     const v = localStorage.getItem(TAB_KEY)
     if (v === 'albums') return 'albums'
+    if (v === 'searches') return 'searches'
   } catch { /* ignore */ }
   return 'folders'
 }
@@ -287,6 +351,19 @@ export default function Sidebar() {
           <Images size={13} />
           Albums
         </button>
+        <button
+          type="button"
+          onClick={() => switchTab('searches')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors',
+            activeTab === 'searches'
+              ? 'text-neutral-100 border-b-2 border-blue-500'
+              : 'text-neutral-500 hover:text-neutral-300'
+          )}
+        >
+          <Clock size={13} />
+          Searches
+        </button>
       </div>
 
       {/* Disk deletion banner — outside the scroll area so it stays visible */}
@@ -309,24 +386,26 @@ export default function Sidebar() {
       )}
 
       {/* Search — outside scroll area so it stays visible */}
-      <div className="pt-2 pb-1 shrink-0">
-        {activeTab === 'folders' ? (
-          <SearchInput
-            value={folderSearch}
-            onChange={setFolderSearch}
-            placeholder="Search folders…"
-          />
-        ) : (
-          <SearchInput
-            value={albumSearch}
-            onChange={setAlbumSearch}
-            placeholder="Search albums…"
-          />
-        )}
-      </div>
+      {activeTab !== 'searches' && (
+        <div className="pt-2 pb-1 shrink-0">
+          {activeTab === 'folders' ? (
+            <SearchInput
+              value={folderSearch}
+              onChange={setFolderSearch}
+              placeholder="Search folders…"
+            />
+          ) : (
+            <SearchInput
+              value={albumSearch}
+              onChange={setAlbumSearch}
+              placeholder="Search albums…"
+            />
+          )}
+        </div>
+      )}
 
       {/* Content */}
-      <nav className="flex-1 overflow-y-auto">
+      <nav className="flex-1 overflow-y-auto pt-1">
         {activeTab === 'folders' ? (
           <>
             {folderSearch ? (
@@ -349,8 +428,10 @@ export default function Sidebar() {
               <RootFolderTree folders={visibleRootFolders} />
             )}
           </>
-        ) : (
+        ) : activeTab === 'albums' ? (
           <AlbumList filter={albumSearch} />
+        ) : (
+          <RecentSearchesPanel />
         )}
       </nav>
 

@@ -55,6 +55,7 @@ export default function FolderTreeNode({ folder, rootPath, depth = 0 }: FolderTr
   return (
     <div>
       <div
+        onClick={handleNavigate}
         className={cn(
           'flex items-center gap-1.5 rounded px-2 py-1.5 text-sm cursor-pointer transition-colors select-none',
           isActive

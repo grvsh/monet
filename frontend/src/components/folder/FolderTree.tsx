@@ -54,10 +54,13 @@ export default function FolderTree({ rootFolder, descendantRoots = [] }: FolderT
   return (
     <div>
       {/* Root folder row */}
-      <div className={cn(
-        'flex items-center gap-1.5 rounded px-2 py-1.5 text-sm cursor-pointer transition-colors select-none',
-        isRootActive ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40' : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
-      )}>
+      <div
+        onClick={() => navigate(rootPath)}
+        className={cn(
+          'flex items-center gap-1.5 rounded px-2 py-1.5 text-sm cursor-pointer transition-colors select-none',
+          isRootActive ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40' : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
+        )}
+      >
         {hasSubfolders ? (
           <button
             onClick={(e) => { e.stopPropagation(); setOpen(v => !v) }}

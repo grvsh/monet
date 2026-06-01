@@ -76,7 +76,7 @@ export default function AlbumList({ filter = '' }: AlbumListProps) {
               className={cn(
                 'flex items-center gap-2.5 rounded px-3 py-2 text-sm transition-colors',
                 location.pathname === `/albums/${album.id}`
-                  ? 'bg-neutral-800 text-neutral-100'
+                  ? 'bg-blue-900/40 text-blue-100 ring-1 ring-inset ring-blue-700/40'
                   : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'
               )}
             >
