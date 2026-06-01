@@ -4,7 +4,7 @@ import uuid
 
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import file_to_response
@@ -65,7 +65,7 @@ async def list_people(
         .group_by(Person.id)
         .having(func.count(FaceDetection.id) >= min_count)
         .order_by(
-            func.case((Person.name.isnot(None), 0), else_=1).asc(),
+            case((Person.name.isnot(None), 0), else_=1).asc(),
             func.count(FaceDetection.id).desc(),
         )
     )
