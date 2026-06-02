@@ -53,15 +53,67 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
   // isClosing: portal fade-out has started — hide panel in sync with image
   const [isClosing, setIsClosing] = useState(false)
 
+  // Refs so callbacks always see the latest values without stale closures.
+  const filesRef = useRef(files)
+  filesRef.current = files
+  const currentIndexRef = useRef(index)
+
   const currentFile = files[currentIndex]
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'i' || e.key === 'I') setShowMeta((v) => !v)
+  // Find the <video> element for the currently visible slide by matching its
+  // source URL. YARL preloads adjacent slides so querySelectorAll returns
+  // multiple <video> elements; we must identify the right one.
+  const findCurrentVideo = useCallback((): HTMLVideoElement | null => {
+    const file = filesRef.current[currentIndexRef.current]
+    if (!file || file.media_type !== 'video') return null
+    const src = file.has_video_preview && file.video_preview_url
+      ? file.video_preview_url
+      : `/api/stream/${file.id}`
+    const videos = Array.from(document.querySelectorAll('.yarl__portal video')) as HTMLVideoElement[]
+    return videos.find(v => v.querySelector('source')?.getAttribute('src') === src) ?? null
   }, [])
 
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'i' || e.key === 'I') {
+      setShowMeta((v) => !v)
+    } else if (e.key === ' ') {
+      const video = findCurrentVideo()
+      // When the video element itself is the fullscreen element, the browser's
+      // native <video controls> handles Space — our handler would double-toggle.
+      if (video && document.fullscreenElement !== video) {
+        e.preventDefault()
+        video.paused ? video.play().catch(() => {}) : video.pause()
+      }
+    }
+  }, [findCurrentVideo])
+
+  const handleDoubleClick = useCallback(() => {
+    if (!document.fullscreenElement) {
+      const video = findCurrentVideo()
+      if (video) {
+        // Fullscreen the video element directly — same as the native controls button.
+        video.requestFullscreen().catch(() => {})
+      } else {
+        // Image: fullscreen the YARL portal root (rendered into document.body via portal).
+        const yarlRoot = document.querySelector('.yarl__portal') as HTMLElement | null
+        ;(yarlRoot ?? document.documentElement).requestFullscreen().catch(() => {})
+      }
+    } else {
+      document.exitFullscreen().catch(() => {})
+    }
+  }, [findCurrentVideo])
+
+  const handleClose = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    }
+    onClose()
+  }, [onClose])
+
   useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    // Capture phase so our handler fires before YARL's onKeyDown stopPropagation.
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [handleKeyDown])
 
   useEffect(() => {
@@ -187,15 +239,15 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
   return (
     <>
       <div className="fixed inset-0 z-50 flex">
-        <div className={cn('flex-1 relative', showMeta ? 'mr-[360px]' : '')}>
+        <div className={cn('flex-1 relative', showMeta ? 'mr-[360px]' : '')} onDoubleClick={handleDoubleClick}>
           <Lightbox
             open
-            close={onClose}
+            close={handleClose}
             index={currentIndex}
             slides={slides}
             plugins={[Video]}
             on={{
-              view: ({ index: i }) => setCurrentIndex(i),
+              view: ({ index: i }) => { setCurrentIndex(i); currentIndexRef.current = i },
               entering: () => setIsEntering(true),
               entered: () => setIsEntered(true),
               exiting: () => {
