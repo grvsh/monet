@@ -57,6 +57,9 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
   const filesRef = useRef(files)
   filesRef.current = files
   const currentIndexRef = useRef(index)
+  const showMetaRef = useRef(showMeta)
+  showMetaRef.current = showMeta
+  const preFullscreenShowMeta = useRef<boolean | null>(null)
 
   const currentFile = files[currentIndex]
 
@@ -115,6 +118,20 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [handleKeyDown])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        preFullscreenShowMeta.current = showMetaRef.current
+        setShowMeta(false)
+      } else if (preFullscreenShowMeta.current !== null) {
+        setShowMeta(preFullscreenShowMeta.current)
+        preFullscreenShowMeta.current = null
+      }
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
 
   useEffect(() => {
     if (!showDownloadMenu) return
