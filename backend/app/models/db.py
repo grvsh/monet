@@ -275,6 +275,7 @@ class MediaFile(Base):
     thumbnail_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preview_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     video_preview_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    video_preview_gpu: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     # AI / ML features
     clip_embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1024), nullable=True)

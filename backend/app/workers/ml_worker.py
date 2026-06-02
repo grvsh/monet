@@ -16,12 +16,14 @@ from sqlalchemy import select, update
 from app.config import settings
 from app.database import async_session_factory
 from app.models.db import FaceDetection, MediaFile, RootFolder, ScanJob
+from app.services.media import thumbnail_cache_path, preview_cache_path
 from app.services.processor import generate_video_preview as _cpu_transcode
 
 logger = logging.getLogger(__name__)
 
 _STAGING_KEY = "ml:batch_staging"
 _CAPTION_STAGING_KEY = "ml:caption_staging"
+_ASSETS_STAGING_KEY = "assets:gpu_staging"
 # Features that run sequentially and are excluded from the fast batch pass.
 # They are re-staged to _CAPTION_STAGING_KEY and flushed at a lower cadence.
 _SLOW_FEATURES: frozenset[str] = frozenset({"caption"})
@@ -612,6 +614,157 @@ async def _do_cluster_faces(redis: object | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GPU asset generation batch flush (thumbnails + previews)
+# ---------------------------------------------------------------------------
+
+
+async def flush_gpu_assets(ctx: dict) -> None:
+    """Cron: pop a batch of images from staging, call /assets/generate/batch,
+    update the DB. Falls back to local CPU for any item that fails.
+
+    Runs every 5 s; a Redis lock prevents concurrent runs.
+    """
+    if not settings.monet_ml_service_url:
+        return
+
+    redis = ctx["redis"]
+    lock = await redis.set("assets:flush_lock", "1", nx=True, ex=120)
+    if not lock:
+        return
+
+    try:
+        pipe = redis.pipeline()
+        for _ in range(settings.monet_ml_batch_size):
+            pipe.lpop(_ASSETS_STAGING_KEY)
+        raw = await pipe.execute()
+        items = [
+            (r.decode() if isinstance(r, bytes) else r)
+            for r in raw if r is not None
+        ]
+        if not items:
+            return
+
+        # Build per-file info from DB
+        file_ids_scan = []
+        for entry in items:
+            fid, *rest = entry.split(":")
+            file_ids_scan.append((uuid.UUID(fid), rest[0] if rest and rest[0] else None))
+
+        requests = []
+        meta: list[tuple] = []  # (file_id, scan_job_id, thumb_path, preview_path)
+        async with async_session_factory() as session:
+            for file_id, scan_job_id in file_ids_scan:
+                mf = await session.get(MediaFile, file_id)
+                if not mf or mf.is_deleted or mf.processed_at is not None:
+                    continue
+                root = await session.get(RootFolder, mf.root_folder_id)
+                if not root:
+                    continue
+                abs_path = str(Path(root.path) / mf.path)
+                thumb_path = thumbnail_cache_path(file_id, settings.monet_cache_dir)
+                preview_path = preview_cache_path(file_id, settings.monet_cache_dir)
+                requests.append({
+                    "src": abs_path,
+                    "thumb_path": str(thumb_path),
+                    "preview_path": str(preview_path),
+                    "media_type": mf.media_type,
+                    "extension": mf.extension,
+                    "thumb_size": settings.monet_thumb_size,
+                    "preview_max_w": settings.monet_preview_max_width,
+                    "preview_max_h": settings.monet_preview_max_height,
+                    "thumb_quality": settings.monet_thumb_quality,
+                    "preview_quality": settings.monet_preview_quality,
+                })
+                meta.append((file_id, scan_job_id, thumb_path, preview_path))
+
+        if not requests:
+            return
+
+        # Call batch endpoint
+        gpu_results: list[dict | None] = [None] * len(requests)
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                resp = await client.post(
+                    f"{settings.monet_ml_service_url}/assets/generate/batch",
+                    json={"items": requests},
+                    headers=_build_headers(),
+                )
+                resp.raise_for_status()
+                gpu_results = resp.json()
+        except Exception:
+            logger.warning("GPU asset batch failed — falling back to CPU for all items")
+
+        # Update DB; CPU-fallback for failures
+        now = datetime.now(timezone.utc)
+        async with async_session_factory() as session:
+            async with session.begin():
+                for i, (file_id, scan_job_id, thumb_path, preview_path) in enumerate(meta):
+                    mf = await session.get(MediaFile, file_id)
+                    if not mf:
+                        continue
+
+                    result = gpu_results[i] if i < len(gpu_results) else None
+                    gpu_ok = result is not None and not result.get("error")
+
+                    if not gpu_ok:
+                        # CPU fallback
+                        root = await session.get(RootFolder, mf.root_folder_id)
+                        if root:
+                            try:
+                                from app.services.processor import generate_thumbnail_and_preview
+                                abs_path = str(Path(root.path) / mf.path)
+                                w, h = await generate_thumbnail_and_preview(
+                                    abs_path, mf.media_type, mf.extension,
+                                    thumb_path, preview_path,
+                                    settings.monet_thumb_size,
+                                    settings.monet_preview_max_width,
+                                    settings.monet_preview_max_height,
+                                    settings.monet_thumb_quality,
+                                    settings.monet_preview_quality,
+                                )
+                                result = {"width": w, "height": h}
+                            except Exception:
+                                logger.exception("CPU fallback failed for %s", file_id)
+                                mf.processed_at = now
+                                mf.processing_error = "asset generation failed"
+                                continue
+
+                    thumb_rel = str(
+                        thumb_path.relative_to(Path(settings.monet_cache_dir) / "thumbnails")
+                    )
+                    preview_rel = str(
+                        preview_path.relative_to(Path(settings.monet_cache_dir) / "previews")
+                    )
+                    mf.thumbnail_path = thumb_rel
+                    mf.preview_path = preview_rel
+                    if result and result.get("width"):
+                        mf.width = result["width"]
+                    if result and result.get("height"):
+                        mf.height = result["height"]
+                    mf.processed_at = now
+
+                    if scan_job_id:
+                        try:
+                            await session.execute(
+                                update(ScanJob)
+                                .where(ScanJob.id == uuid.UUID(scan_job_id))
+                                .values(files_failed=ScanJob.files_failed + (0 if gpu_ok else 1))
+                            )
+                        except Exception:
+                            pass
+
+                    # Kick off ML analysis now that the preview exists
+                    await redis.enqueue_job(
+                        "ml_analyze_file",
+                        str(file_id),
+                        scan_job_id,
+                        _queue_name="arq:ml-queue",
+                    )
+    finally:
+        await redis.delete("assets:flush_lock")
+
+
+# ---------------------------------------------------------------------------
 # Video preview generation (GPU on ml-service, CPU fallback)
 # ---------------------------------------------------------------------------
 
@@ -658,6 +811,7 @@ async def generate_video_preview(ctx: dict, file_id_str: str) -> None:
                     return
 
             media_file.video_preview_path = preview_rel
+            media_file.video_preview_gpu = gpu_ok
 
 
 async def _try_gpu_transcode(abs_src: str, abs_dst: str) -> bool:
@@ -694,11 +848,12 @@ async def _try_gpu_transcode(abs_src: str, abs_dst: str) -> bool:
 class MLWorkerSettings:
     """ML worker — fast features every 30s, captions every 5 minutes, face clustering nightly."""
 
-    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces, generate_video_preview]
+    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces, generate_video_preview, flush_gpu_assets]
     cron_jobs = [
         cron(ml_flush_batch, second={0, 30}),
         cron(ml_flush_caption, second=0),  # every minute; lock prevents overlap
         cron(cluster_faces, hour=3, minute=0),  # nightly at 03:00
+        cron(flush_gpu_assets, second={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
     ]
     on_startup = ml_startup
     on_shutdown = ml_shutdown

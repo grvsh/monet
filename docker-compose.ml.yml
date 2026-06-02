@@ -26,11 +26,13 @@
 
 services:
   ml-service:
+    init: true  # runs tini as PID 1 to reap zombie processes
     build:
       context: ./ml-service
       target: production
     image: ghcr.io/grvsh/monet-ml:latest
     restart: unless-stopped
+    user: "1000:1000"  # grv on gpu-machine — needed for write access to NFS-mounted RAID
     deploy:
       resources:
         reservations:

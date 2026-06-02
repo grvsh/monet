@@ -356,8 +356,19 @@ async def extract_metadata(ctx: dict, file_id_str: str, scan_job_id_str: str | N
                     media_file.location = location
 
 
+_RAW_EXTENSIONS = frozenset(
+    {"cr2", "cr3", "nef", "nrw", "dng", "orf", "raf", "arw", "rw2", "pef", "srw"}
+)
+_HEIF_EXTENSIONS = frozenset({"heic", "heif"})
+
+
 async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | None = None) -> None:
-    """ARQ task: generate thumbnail and preview JPEGs and update the DB row."""
+    """ARQ task: generate thumbnail and preview JPEGs and update the DB row.
+
+    Standard images are pushed to the GPU staging key and processed in batches
+    by flush_gpu_assets (ml-worker cron, every 5 s).  Videos, RAW, HEIF, and
+    audio fall through to local CPU processing immediately.
+    """
     file_id = uuid.UUID(file_id_str)
 
     async with async_session_factory() as session:
@@ -366,8 +377,6 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
             if not media_file or media_file.is_deleted:
                 return
 
-            # Skip if already processed — avoids redundant work when duplicate
-            # jobs are enqueued (e.g. from multiple scan runs).
             if media_file.processed_at is not None:
                 return
 
@@ -375,8 +384,26 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
             if not root:
                 return
 
-            abs_path = str(Path(root.path) / media_file.path)
+            ext = media_file.extension.lower().lstrip(".")
+            is_gpu_image = (
+                media_file.media_type == "image"
+                and ext not in _RAW_EXTENSIONS
+                and ext not in _HEIF_EXTENSIONS
+                and settings.monet_ml_service_url
+            )
 
+            arq = ctx.get("redis")
+
+            if is_gpu_image and arq:
+                # Defer to GPU batch pipeline — flush_gpu_assets will update the DB.
+                await arq.rpush(
+                    "assets:gpu_staging",
+                    f"{file_id_str}:{scan_job_id_str or ''}",
+                )
+                return
+
+            # ── CPU path (videos, RAW, HEIF, audio, or no ml-service) ──────────
+            abs_path = str(Path(root.path) / media_file.path)
             thumb_path = thumbnail_cache_path(file_id, settings.monet_cache_dir)
             preview_path = preview_cache_path(file_id, settings.monet_cache_dir)
 
@@ -395,8 +422,6 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                 )
             except Exception as exc:
                 logger.exception("generate_assets failed for %s", abs_path)
-                # Mark as processed even on failure so the file doesn't stay
-                # in the pending queue forever and the UI progress resolves.
                 media_file.processed_at = datetime.now(timezone.utc)
                 media_file.processing_error = str(exc) or type(exc).__name__
                 if scan_job_id_str:
@@ -407,7 +432,6 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                     )
                 return
 
-            # Store paths relative to their respective cache subdirectory
             thumb_rel = str(
                 thumb_path.relative_to(Path(settings.monet_cache_dir) / "thumbnails")
             )
@@ -423,8 +447,6 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                 media_file.height = h
             media_file.processed_at = datetime.now(timezone.utc)
 
-            # Enqueue ML analysis now that the preview exists on disk.
-            arq = ctx.get("redis")
             if arq and settings.monet_ml_service_url:
                 await arq.enqueue_job(
                     "ml_analyze_file",
@@ -433,8 +455,6 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                     _queue_name="arq:ml-queue",
                 )
 
-            # Enqueue video preview transcode for video files (handled by ml-worker,
-            # which tries GPU NVENC on gpu-machine then falls back to local CPU).
             if arq and media_file.media_type == "video" and settings.monet_video_preview_enabled:
                 await arq.enqueue_job(
                     "generate_video_preview",

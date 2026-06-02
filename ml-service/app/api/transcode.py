@@ -128,7 +128,7 @@ def _run_nvenc(src: Path, dst: Path, crf: int, preset: str) -> None:
             [
                 "ffmpeg", "-y",
                 "-i", str(src),
-                "-vf", "scale=1920:1080:flags=lanczos",
+                "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
                 "-vcodec", "h264_nvenc",
                 "-cq:v", str(crf),
                 "-preset:v", preset,

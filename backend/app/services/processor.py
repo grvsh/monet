@@ -245,7 +245,7 @@ def _transcode_video(abs_src: str, abs_dst: Path, crf: int, preset: str) -> None
                 vcodec="libx264",
                 crf=crf,
                 preset=preset,
-                vf="scale=1920:1080:flags=lanczos",
+                vf="scale=1920:1080:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
                 acodec="aac",
                 audio_bitrate="192k",
                 movflags="+faststart",

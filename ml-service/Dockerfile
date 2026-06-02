@@ -23,8 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN wget -q -O /tmp/ffmpeg.tar.xz \
       "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" \
     && tar -xf /tmp/ffmpeg.tar.xz -C /usr/local/bin \
-         --strip-components=2 ffmpeg-master-latest-linux64-gpl/bin/ffmpeg \
-    && chmod +x /usr/local/bin/ffmpeg \
+         --strip-components=2 \
+         ffmpeg-master-latest-linux64-gpl/bin/ffmpeg \
+         ffmpeg-master-latest-linux64-gpl/bin/ffprobe \
+    && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
     && rm /tmp/ffmpeg.tar.xz
 
 # Non-root user — matches the pattern used in the main backend image

@@ -40,6 +40,7 @@ app = FastAPI(title="Monet ML Service", lifespan=lifespan)
 
 # Import routers after app is defined to avoid circular imports with loader
 from app.api.analyze import router as analyze_router      # noqa: E402
+from app.api.assets import router as assets_router        # noqa: E402
 from app.api.health import router as health_router        # noqa: E402
 from app.api.transcode import router as transcode_router  # noqa: E402
 
@@ -49,4 +50,5 @@ app.include_router(health_router)
 
 # All inference and transcode endpoints require the API key when configured.
 app.include_router(analyze_router, dependencies=[Depends(_verify_api_key)])
+app.include_router(assets_router, dependencies=[Depends(_verify_api_key)])
 app.include_router(transcode_router, dependencies=[Depends(_verify_api_key)])
