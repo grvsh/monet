@@ -201,15 +201,19 @@ async def processing_status(
     ml_done = ml_done_result.scalar_one()
     ml_failed = 0  # set below from ml_failed_files
 
-    # Pending: use the scan job counter clamped to ≥0 for in-progress display.
-    ml_job_result = await session.execute(
-        select(ScanJob)
-        .where(ScanJob.root_folder_id == root_folder_id)
-        .order_by(ScanJob.started_at.desc())
-        .limit(1)
+    # Pending: live DB count of files that have been ingested but not yet analyzed.
+    # Using a scan job counter caused "left" to freeze whenever files completing
+    # were queued under an older job than the latest one the API was reading.
+    ml_pending_result = await session.execute(
+        select(func.count()).where(
+            MediaFile.root_folder_id == root_folder_id,
+            MediaFile.is_deleted == False,  # noqa: E712
+            MediaFile.processed_at.isnot(None),
+            MediaFile.ai_analyzed_at.is_(None),
+            MediaFile.ml_error.is_(None),
+        )
     )
-    latest_job = ml_job_result.scalar_one_or_none()
-    ml_pending = max(0, latest_job.ml_files_pending if latest_job else 0)
+    ml_pending = ml_pending_result.scalar_one()
 
     # Per-file ML failure details.
     ml_failed_result = await session.execute(
