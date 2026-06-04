@@ -152,8 +152,8 @@ services:
     env_file:
       - .env
     volumes:
-      # Read-only: ml-worker reads preview images to resize and send to the ML service
-      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache:ro
+      # Read-write: ml-worker reads previews for ML analysis and writes assets via CPU fallback
+      - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
       # Read-write: ml-worker writes GPU-transcoded video previews (or CPU fallback)
       - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal
     command: python -m arq app.workers.ml_worker.MLWorkerSettings
