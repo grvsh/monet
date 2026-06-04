@@ -158,3 +158,11 @@ export interface RootPrefItem {
 export interface RootPrefsResponse {
   prefs: RootPrefItem[]
 }
+
+export interface RootFolderStats {
+  root_folder_id: string
+  image_count: number
+  video_count: number
+  audio_count: number
+  total_count: number
+}

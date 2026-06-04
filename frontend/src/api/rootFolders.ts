@@ -1,5 +1,5 @@
 import client from './client'
-import type { RootFolderResponse, RootPrefsResponse, RootPrefItem } from '../types/api'
+import type { RootFolderResponse, RootPrefsResponse, RootPrefItem, RootFolderStats } from '../types/api'
 
 export async function listRootFolders(): Promise<RootFolderResponse[]> {
   const { data } = await client.get<RootFolderResponse[]>('/api/root-folders')
@@ -21,6 +21,11 @@ export async function updateRootFolder(
 
 export async function deleteRootFolder(id: string): Promise<void> {
   await client.delete(`/api/root-folders/${id}`)
+}
+
+export async function getRootFolderStats(): Promise<RootFolderStats[]> {
+  const { data } = await client.get<RootFolderStats[]>('/api/root-folders/stats')
+  return data
 }
 
 export async function getRootPrefs(): Promise<RootPrefsResponse> {

@@ -4,15 +4,24 @@ import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_admin
 from app.database import get_session
-from app.models.db import RootFolder, User
+from app.models.db import MediaFile, RootFolder, User
 from app.models.schemas import RootFolderCreate, RootFolderResponse, RootFolderUpdate
 from app.services.watcher import watcher_manager
 from app.config import settings
+
+
+class RootFolderStats(BaseModel):
+    root_folder_id: str
+    image_count: int
+    video_count: int
+    audio_count: int
+    total_count: int
 
 router = APIRouter()
 
@@ -75,6 +84,41 @@ async def list_root_folders(
     )
     roots = result.scalars().all()
     return [RootFolderResponse.model_validate(r) for r in roots]
+
+
+@router.get("/stats", response_model=list[RootFolderStats])
+async def get_root_folder_stats(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[RootFolderStats]:
+    """Return file counts by media type for each active root folder."""
+    result = await session.execute(
+        select(MediaFile.root_folder_id, MediaFile.media_type, func.count().label("cnt"))
+        .where(MediaFile.is_deleted == False, MediaFile.missing_since.is_(None))  # noqa: E712
+        .group_by(MediaFile.root_folder_id, MediaFile.media_type)
+    )
+    rows = result.all()
+
+    counts: dict[uuid.UUID, dict[str, int]] = {}
+    for row in rows:
+        counts.setdefault(row.root_folder_id, {})
+        counts[row.root_folder_id][row.media_type] = row.cnt
+
+    active_result = await session.execute(
+        select(RootFolder.id).where(RootFolder.is_active == True)  # noqa: E712
+    )
+    active_ids = [r.id for r in active_result.all()]
+
+    return [
+        RootFolderStats(
+            root_folder_id=str(rid),
+            image_count=counts.get(rid, {}).get("image", 0),
+            video_count=counts.get(rid, {}).get("video", 0),
+            audio_count=counts.get(rid, {}).get("audio", 0),
+            total_count=sum(counts.get(rid, {}).values()),
+        )
+        for rid in active_ids
+    ]
 
 
 @router.post("", response_model=RootFolderResponse, status_code=201)

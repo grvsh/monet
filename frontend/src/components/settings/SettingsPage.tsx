@@ -44,13 +44,11 @@ export default function SettingsPage() {
       {/* Tab content */}
       {activeTab === 'folders' && (
         <div className="space-y-8">
-          {/* Visibility prefs for all users */}
           <section>
             <h2 className="text-base font-semibold text-neutral-200 mb-4">Sidebar Visibility</h2>
             <VisibilityPrefs />
           </section>
 
-          {/* Admin-only section */}
           {user?.role === 'admin' && (
             <section>
               <h2 className="text-base font-semibold text-neutral-200 mb-4">

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import and_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -411,6 +412,83 @@ _RAW_EXTENSIONS = frozenset(
 _HEIF_EXTENSIONS = frozenset({"heic", "heif"})
 
 
+async def _find_processed_sibling(
+    session: AsyncSession,
+    root: RootFolder,
+    abs_path: str,
+) -> MediaFile | None:
+    """Return an already-processed MediaFile for the same physical path in a child root.
+
+    When a parent root is added over already-indexed child roots, the scan creates
+    duplicate MediaFile records (new UUIDs, no thumbnails) for every file that was
+    already processed under a child root.  This helper locates the existing sibling
+    so generate_assets can copy its thumbnails instead of regenerating them.
+    """
+    child_roots_result = await session.execute(
+        select(RootFolder).where(
+            RootFolder.parent_root_id == root.id,
+            RootFolder.is_active == True,  # noqa: E712
+        )
+    )
+    child_roots = child_roots_result.scalars().all()
+    if not child_roots:
+        return None
+
+    abs_path_obj = Path(abs_path)
+    for child_root in child_roots:
+        try:
+            rel = abs_path_obj.relative_to(child_root.path)
+        except ValueError:
+            continue
+        result = await session.execute(
+            select(MediaFile)
+            .where(
+                MediaFile.root_folder_id == child_root.id,
+                MediaFile.path == str(rel),
+                MediaFile.processed_at.isnot(None),
+                MediaFile.thumbnail_path.isnot(None),
+            )
+            .limit(1)
+        )
+        sibling = result.scalar_one_or_none()
+        if sibling:
+            return sibling
+    return None
+
+
+def _copy_sibling_assets(
+    sibling: MediaFile,
+    new_file_id: uuid.UUID,
+    cache_dir: str,
+) -> tuple[str | None, str | None]:
+    """Copy thumbnail and preview files from a sibling record to the new file UUID's paths.
+
+    Returns (thumb_rel, preview_rel) for storing in the DB, or (None, None) on failure.
+    """
+    import shutil
+
+    thumb_rel: str | None = None
+    prev_rel: str | None = None
+
+    if sibling.thumbnail_path:
+        src = Path(cache_dir) / "thumbnails" / sibling.thumbnail_path
+        dst = thumbnail_cache_path(new_file_id, cache_dir)
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            thumb_rel = str(dst.relative_to(Path(cache_dir) / "thumbnails"))
+
+    if sibling.preview_path:
+        src = Path(cache_dir) / "previews" / sibling.preview_path
+        dst = preview_cache_path(new_file_id, cache_dir)
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            prev_rel = str(dst.relative_to(Path(cache_dir) / "previews"))
+
+    return thumb_rel, prev_rel
+
+
 async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | None = None) -> None:
     """ARQ task: generate thumbnail and preview JPEGs and update the DB row.
 
@@ -433,6 +511,25 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
             if not root:
                 return
 
+            abs_path = str(Path(root.path) / media_file.path)
+
+            # When a parent root is added over already-indexed child roots the scan
+            # creates duplicate MediaFile records (new UUIDs, unprocessed) for every
+            # file that already has a thumbnail under a child root.  Copy the existing
+            # assets instead of regenerating them from scratch.
+            sibling = await _find_processed_sibling(session, root, abs_path)
+            if sibling:
+                thumb_rel, prev_rel = _copy_sibling_assets(
+                    sibling, file_id, settings.monet_cache_dir
+                )
+                if thumb_rel:
+                    media_file.thumbnail_path = thumb_rel
+                    media_file.preview_path = prev_rel
+                    media_file.width = sibling.width
+                    media_file.height = sibling.height
+                    media_file.processed_at = datetime.now(timezone.utc)
+                    return
+
             ext = media_file.extension.lower().lstrip(".")
             is_gpu_image = (
                 media_file.media_type == "image"
@@ -452,7 +549,6 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                 return
 
             # ── CPU path (videos, RAW, HEIF, audio, or no ml-service) ──────────
-            abs_path = str(Path(root.path) / media_file.path)
             thumb_path = thumbnail_cache_path(file_id, settings.monet_cache_dir)
             preview_path = preview_cache_path(file_id, settings.monet_cache_dir)
             _t0 = time.monotonic()
