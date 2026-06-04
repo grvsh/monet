@@ -91,7 +91,11 @@ async def scan_folder(
                     and not e.name.startswith('.')
                     and not e.name.startswith('_monet_preview')
                 ]
-                file_entries = [e for e in entries if e.is_file(follow_symlinks=False)]
+                file_entries = [
+                    e for e in entries
+                    if e.is_file(follow_symlinks=False)
+                    and not e.name.startswith('.')
+                ]
 
                 files_found = 0
                 files_new = 0

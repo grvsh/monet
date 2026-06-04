@@ -217,6 +217,7 @@ async def processing_status(
             MediaFile.root_folder_id == root_folder_id,
             MediaFile.is_deleted == False,  # noqa: E712
             MediaFile.ml_error.isnot(None),
+            MediaFile.ai_analyzed_at.is_(None),  # stale errors on successful files don't count
         )
     )
     ml_failed_files = [
@@ -236,11 +237,21 @@ async def processing_status(
     )
     caption_done = caption_done_result.scalar_one()
 
-    # Caption queue depth — global Redis list, not per root folder.
-    # Show only when ML is configured (key won't exist otherwise).
+    # Caption pending — files in this folder that have been processed but still
+    # lack a caption. Uses DB state rather than the global Redis staging queue
+    # so the count is per-folder and doesn't bleed across other folders.
     caption_pending = 0
     if settings.monet_ml_service_url:
-        caption_pending = await redis.llen("ml:caption_staging") or 0
+        caption_pending_result = await session.execute(
+            select(func.count()).where(
+                MediaFile.root_folder_id == root_folder_id,
+                MediaFile.is_deleted == False,  # noqa: E712
+                MediaFile.processed_at.isnot(None),
+                MediaFile.caption.is_(None),
+                MediaFile.ml_error.is_(None),
+            )
+        )
+        caption_pending = caption_pending_result.scalar_one()
 
     return ProcessingStatusResponse(
         total=total,
