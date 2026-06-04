@@ -543,3 +543,42 @@ class FaceDetection(Base):
         back_populates="faces",
         foreign_keys=[person_id],
     )
+
+
+class TaskTiming(Base):
+    """Per-task duration record for latency analysis.
+
+    Per-file tasks (extract_metadata, generate_assets_*) have file_id set.
+    Batch tasks (ml_batch, caption_batch, gpu_assets_batch) set file_id=NULL
+    and file_count > 1; per-file latency is duration_ms / file_count.
+    """
+    __tablename__ = "task_timings"
+    __table_args__ = (
+        Index("idx_task_timings_task_name", "task_name"),
+        Index("idx_task_timings_started_at", "started_at"),
+        Index("idx_task_timings_file_id", "file_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    file_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("media_files.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    task_name: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    success: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    file_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+    # Denormalized to avoid joins in analysis queries
+    media_type: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    is_raw: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

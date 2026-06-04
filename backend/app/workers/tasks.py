@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,11 +14,40 @@ logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.database import async_session_factory
-from app.models.db import FileMetadata, MediaFile, RootFolder, ScanJob
+from app.models.db import FileMetadata, MediaFile, RootFolder, ScanJob, TaskTiming
 from app.services.indexer import get_or_create_folder
 from app.services.media import get_media_type, is_raw, thumbnail_cache_path, preview_cache_path
 from app.services.metadata import extract_metadata as _extract_metadata, parse_denormalized
 from app.services.processor import generate_thumbnail_and_preview
+
+
+async def _record_timing(
+    task_name: str,
+    started_at: datetime,
+    duration_ms: int,
+    success: bool,
+    file_id: uuid.UUID | None = None,
+    media_type: str | None = None,
+    file_size_bytes: int | None = None,
+    is_raw: bool | None = None,
+    file_count: int = 1,
+) -> None:
+    try:
+        async with async_session_factory() as s:
+            async with s.begin():
+                s.add(TaskTiming(
+                    file_id=file_id,
+                    task_name=task_name,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                    success=success,
+                    file_count=file_count,
+                    media_type=media_type,
+                    file_size_bytes=file_size_bytes,
+                    is_raw=is_raw,
+                ))
+    except Exception:
+        logger.warning("Failed to record task timing for %s", task_name)
 
 
 def _ml_features_stale(ai_versions: dict | None, manifest: dict) -> bool:
@@ -317,12 +347,20 @@ async def extract_metadata(ctx: dict, file_id_str: str, scan_job_id_str: str | N
                 return
 
             abs_path = str(Path(root.path) / media_file.path)
+            _t0 = time.monotonic()
+            _started_at = datetime.now(timezone.utc)
 
             try:
                 et = ctx.get("exiftool")
                 meta = await _extract_metadata(abs_path, et)
             except Exception:
                 logger.exception("extract_metadata failed for %s", abs_path)
+                await _record_timing(
+                    "extract_metadata", _started_at,
+                    int((time.monotonic() - _t0) * 1000), False,
+                    file_id, media_file.media_type, media_file.size_bytes,
+                    media_file.is_raw,
+                )
                 if scan_job_id_str:
                     await session.execute(
                         update(ScanJob)
@@ -358,6 +396,13 @@ async def extract_metadata(ctx: dict, file_id_str: str, scan_job_id_str: str | N
                 location = await reverse_geocode(media_file.gps_lat, media_file.gps_lon)
                 if location:
                     media_file.location = location
+
+    await _record_timing(
+        "extract_metadata", _started_at,
+        int((time.monotonic() - _t0) * 1000), True,
+        file_id, media_file.media_type, media_file.size_bytes,
+        media_file.is_raw,
+    )
 
 
 _RAW_EXTENSIONS = frozenset(
@@ -410,6 +455,8 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
             abs_path = str(Path(root.path) / media_file.path)
             thumb_path = thumbnail_cache_path(file_id, settings.monet_cache_dir)
             preview_path = preview_cache_path(file_id, settings.monet_cache_dir)
+            _t0 = time.monotonic()
+            _started_at = datetime.now(timezone.utc)
 
             try:
                 w, h = await generate_thumbnail_and_preview(
@@ -426,6 +473,11 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                 )
             except Exception as exc:
                 logger.exception("generate_assets failed for %s", abs_path)
+                await _record_timing(
+                    "generate_assets_cpu", _started_at,
+                    int((time.monotonic() - _t0) * 1000), False,
+                    file_id, media_file.media_type, media_file.size_bytes, media_file.is_raw,
+                )
                 media_file.processed_at = datetime.now(timezone.utc)
                 media_file.processing_error = str(exc) or type(exc).__name__
                 if scan_job_id_str:
@@ -435,6 +487,12 @@ async def generate_assets(ctx: dict, file_id_str: str, scan_job_id_str: str | No
                         .values(files_failed=ScanJob.files_failed + 1)
                     )
                 return
+
+            await _record_timing(
+                "generate_assets_cpu", _started_at,
+                int((time.monotonic() - _t0) * 1000), True,
+                file_id, media_file.media_type, media_file.size_bytes, media_file.is_raw,
+            )
 
             thumb_rel = str(
                 thumb_path.relative_to(Path(settings.monet_cache_dir) / "thumbnails")

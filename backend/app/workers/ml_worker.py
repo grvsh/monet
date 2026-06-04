@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,11 +16,33 @@ from sqlalchemy import select, update
 
 from app.config import settings
 from app.database import async_session_factory
-from app.models.db import FaceDetection, MediaFile, RootFolder, ScanJob
+from app.models.db import FaceDetection, MediaFile, RootFolder, ScanJob, TaskTiming
 from app.services.media import thumbnail_cache_path, preview_cache_path
 from app.services.processor import generate_video_preview as _cpu_transcode
 
 logger = logging.getLogger(__name__)
+
+
+async def _record_timing(
+    task_name: str,
+    started_at: datetime,
+    duration_ms: int,
+    success: bool,
+    file_count: int = 1,
+) -> None:
+    try:
+        async with async_session_factory() as s:
+            async with s.begin():
+                s.add(TaskTiming(
+                    task_name=task_name,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                    success=success,
+                    file_count=file_count,
+                ))
+    except Exception:
+        logger.warning("Failed to record task timing for %s", task_name)
+
 
 _STAGING_KEY = "ml:batch_staging"
 _CAPTION_STAGING_KEY = "ml:caption_staging"
@@ -334,6 +357,9 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
         return
 
     # POST to ML service
+    _t0 = time.monotonic()
+    _started_at = datetime.now(timezone.utc)
+    _task_label = "caption_batch" if not has_fast_in_manifest else "ml_batch"
     try:
         async with httpx.AsyncClient(timeout=540) as client:
             resp = await client.post(
@@ -346,10 +372,12 @@ async def _process_batch(raw_items: list[str], manifest: dict, redis=None) -> No
             ml_results: list[dict] = resp.json()["results"]
     except Exception as exc:
         logger.exception("ML service batch call failed (%d files)", len(files_payload))
+        await _record_timing(_task_label, _started_at, int((time.monotonic() - _t0) * 1000), False, len(valid_ordered))
         for file_id, scan_job_id, _ in valid_ordered:
             await _set_ml_file_error(file_id, f"ML service request failed: {exc!s}"[:500])
             await _update_scan_counter(scan_job_id, failed=1, pending=-1)
         return
+    await _record_timing(_task_label, _started_at, int((time.monotonic() - _t0) * 1000), True, len(valid_ordered))
 
     # Persist results — one transaction per file so a failure on one doesn't
     # roll back the whole batch.
@@ -682,6 +710,9 @@ async def flush_gpu_assets(ctx: dict) -> None:
 
         # Call batch endpoint
         gpu_results: list[dict | None] = [None] * len(requests)
+        _t0 = time.monotonic()
+        _started_at = datetime.now(timezone.utc)
+        _gpu_success = True
         try:
             async with httpx.AsyncClient(timeout=300) as client:
                 resp = await client.post(
@@ -693,6 +724,8 @@ async def flush_gpu_assets(ctx: dict) -> None:
                 gpu_results = resp.json()
         except Exception:
             logger.warning("GPU asset batch failed — falling back to CPU for all items")
+            _gpu_success = False
+        await _record_timing("gpu_assets_batch", _started_at, int((time.monotonic() - _t0) * 1000), _gpu_success, len(requests))
 
         # Update DB; CPU-fallback for failures
         now = datetime.now(timezone.utc)
