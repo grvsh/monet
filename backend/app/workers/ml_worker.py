@@ -12,7 +12,7 @@ import httpx
 from arq import cron
 from arq.connections import RedisSettings, create_pool
 from PIL import Image
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from app.config import settings
 from app.database import async_session_factory
@@ -881,6 +881,50 @@ async def _try_gpu_transcode(abs_src: str, abs_dst: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Self-healing: re-stage files whose ml_analyze_file ARQ job expired
+# ---------------------------------------------------------------------------
+
+_RESTAGE_LIMIT = 500  # max files pushed per run to avoid queue spikes
+
+
+async def ml_restage_lost(ctx: dict) -> None:
+    """Cron: re-push files that were ingested but never reached the ML staging queue.
+
+    ml_analyze_file ARQ jobs have a 1-hour TTL. If the ml-worker was busy or
+    down when they were enqueued, the jobs expire silently and the files are
+    left with processed_at set but ai_analyzed_at NULL and no ml_error. This
+    cron detects them (age > 10 min to avoid racing in-flight work) and pushes
+    them back into ml:batch_staging so the next ml_flush_batch picks them up.
+    """
+    if not ctx.get("ml_configured"):
+        return
+
+    redis = ctx["redis"]
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(MediaFile.id).where(
+                MediaFile.is_deleted == False,  # noqa: E712
+                MediaFile.processed_at.isnot(None),
+                MediaFile.thumbnail_path.isnot(None),
+                MediaFile.ai_analyzed_at.is_(None),
+                MediaFile.ml_error.is_(None),
+                MediaFile.processed_at < text("NOW() - INTERVAL '10 minutes'"),
+            ).limit(_RESTAGE_LIMIT)
+        )
+        file_ids = [row.id for row in result.all()]
+
+    if not file_ids:
+        return
+
+    pipe = redis.pipeline()
+    for fid in file_ids:
+        pipe.rpush(_STAGING_KEY, f"{fid}:")
+    await pipe.execute()
+    logger.info("ml_restage_lost: re-staged %d files into %s", len(file_ids), _STAGING_KEY)
+
+
+# ---------------------------------------------------------------------------
 # Worker settings
 # ---------------------------------------------------------------------------
 
@@ -888,12 +932,13 @@ async def _try_gpu_transcode(abs_src: str, abs_dst: str) -> bool:
 class MLWorkerSettings:
     """ML worker — fast features every 30s, captions every 5 minutes, face clustering nightly."""
 
-    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces, generate_video_preview, flush_gpu_assets]
+    functions = [ml_analyze_file, ml_flush_batch, ml_flush_caption, cluster_faces, generate_video_preview, flush_gpu_assets, ml_restage_lost]
     cron_jobs = [
         cron(ml_flush_batch, second={0, 30}),
         cron(ml_flush_caption, second=0),  # every minute; lock prevents overlap
         cron(cluster_faces, hour=3, minute=0),  # nightly at 03:00
         cron(flush_gpu_assets, second={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}),
+        cron(ml_restage_lost, minute={0, 10, 20, 30, 40, 50}),  # every 10 minutes
     ]
     on_startup = ml_startup
     on_shutdown = ml_shutdown
