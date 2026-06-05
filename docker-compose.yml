@@ -39,7 +39,7 @@ services:
     image: ghcr.io/grvsh/monet-frontend:latest
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "${MONET_HTTP_PORT:-80}:80"
     depends_on:
       - backend
 
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     user: "1000:1006"
     ports:
-      - "8000:8000"
+      - "${MONET_API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -74,8 +74,7 @@ services:
       - .env
     volumes:
       - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
-      - /path/to/example-images:/path/to/example-images
-      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal
+      - ${MONET_MEDIA_PATH:?MONET_MEDIA_PATH must be set in .env}:${MONET_MEDIA_PATH}
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
@@ -99,8 +98,7 @@ services:
       - .env
     volumes:
       - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
-      - /path/to/example-images:/path/to/example-images:ro
-      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal:ro
+      - ${MONET_MEDIA_PATH}:${MONET_MEDIA_PATH}:ro
     command: python -m arq app.workers.worker.WorkerSettings
 
   asset-worker:
@@ -123,8 +121,7 @@ services:
       - .env
     volumes:
       - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
-      - /path/to/example-images:/path/to/example-images:ro
-      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal
+      - ${MONET_MEDIA_PATH}:${MONET_MEDIA_PATH}
     command: python -m arq app.workers.worker.AssetWorkerSettings
 
   # ML analysis worker — CPU only, calls the ml-service over HTTP.
@@ -155,7 +152,7 @@ services:
       # Read-write: ml-worker reads previews for ML analysis and writes assets via CPU fallback
       - ${MONET_CACHE_PATH:-/opt/monet/cache}:/var/monet/cache
       # Read-write: ml-worker writes GPU-transcoded video previews (or CPU fallback)
-      - /mnt/raid1_disks/personal:/mnt/raid1_disks/personal
+      - ${MONET_MEDIA_PATH}:${MONET_MEDIA_PATH}
     command: python -m arq app.workers.ml_worker.MLWorkerSettings
 
 volumes:

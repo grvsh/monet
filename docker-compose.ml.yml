@@ -32,7 +32,7 @@ services:
       target: production
     image: ghcr.io/grvsh/monet-ml:latest
     restart: unless-stopped
-    user: "1000:1000"  # grv on gpu-machine — needed for write access to NFS-mounted RAID
+    user: "1000:1000"  # must match the UID/GID that owns the NFS-mounted media on the GPU machine
     deploy:
       resources:
         reservations:
@@ -54,14 +54,14 @@ services:
       - ml_models:/models
       # Media library — must be mounted at the same path as on the main Monet
       # machine so that absolute paths passed in /video/transcode requests
-      # resolve correctly on gpu-machine.
+      # resolve correctly on the GPU machine.
       #
       # Set up NFS on the main machine:
-      #   /etc/exports: /mnt/raid1_disks  gpu-machine-ip(rw,sync,no_subtree_check)
+      #   /etc/exports: ${MONET_MEDIA_PATH}  <gpu-machine-ip>(rw,sync,no_subtree_check)
       #   exportfs -ra
-      # Then on gpu-machine:
-      #   mount -t nfs main-ip:/mnt/raid1_disks /mnt/raid1_disks
-      - /mnt/raid1_disks:/mnt/raid1_disks
+      # Then on the GPU machine:
+      #   mount -t nfs <main-machine-ip>:${MONET_MEDIA_PATH} ${MONET_MEDIA_PATH}
+      - ${MONET_MEDIA_PATH:?MONET_MEDIA_PATH must be set in .env}:${MONET_MEDIA_PATH}
     healthcheck:
       test:
         - "CMD"

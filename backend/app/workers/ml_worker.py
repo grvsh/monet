@@ -737,8 +737,8 @@ async def flush_gpu_assets(ctx: dict) -> None:
                         continue
 
                     result = gpu_results[i] if i < len(gpu_results) else None
-                    # Verify files actually landed — gpu-machine may not have the cache mounted
-                    # and can return success while writing to an ephemeral overlay layer.
+                    # Verify files actually landed — the GPU machine may not have the cache
+                    # mounted and can return success while writing to an ephemeral overlay layer.
                     gpu_ok = (
                         result is not None
                         and not result.get("error")
