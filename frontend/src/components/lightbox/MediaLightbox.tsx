@@ -55,10 +55,11 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
 
   // Refs so callbacks always see the latest values without stale closures.
   const filesRef = useRef(files)
-  filesRef.current = files
   const currentIndexRef = useRef(index)
   const showMetaRef = useRef(showMeta)
-  showMetaRef.current = showMeta
+
+  useEffect(() => { filesRef.current = files }, [files])
+  useEffect(() => { showMetaRef.current = showMeta }, [showMeta])
   const preFullscreenShowMeta = useRef<boolean | null>(null)
 
   const currentFile = files[currentIndex]
@@ -85,7 +86,7 @@ export default function MediaLightbox({ files, index, onClose }: MediaLightboxPr
       // native <video controls> handles Space — our handler would double-toggle.
       if (video && document.fullscreenElement !== video) {
         e.preventDefault()
-        video.paused ? video.play().catch(() => {}) : video.pause()
+        if (video.paused) { video.play().catch(() => {}) } else { video.pause() }
       }
     }
   }, [findCurrentVideo])
