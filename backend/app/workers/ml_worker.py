@@ -888,20 +888,25 @@ _RESTAGE_LIMIT = 500  # max files pushed per run to avoid queue spikes
 
 
 async def ml_restage_lost(ctx: dict) -> None:
-    """Cron: re-push files that were ingested but never reached the ML staging queue.
+    """Cron: re-push files that fell out of the ML staging queues.
 
-    ml_analyze_file ARQ jobs have a 1-hour TTL. If the ml-worker was busy or
-    down when they were enqueued, the jobs expire silently and the files are
-    left with processed_at set but ai_analyzed_at NULL and no ml_error. This
-    cron detects them (age > 10 min to avoid racing in-flight work) and pushes
-    them back into ml:batch_staging so the next ml_flush_batch picks them up.
+    Two cases are healed:
+    1. Fast features lost — processed_at set, ai_analyzed_at NULL, no error.
+       Caused by ml_analyze_file ARQ jobs expiring silently (1-hour TTL).
+       Re-staged into ml:batch_staging.
+    2. Captions lost — ai_analyzed_at set but caption absent from ai_versions,
+       no error. Caused by caption_staging entries being dropped (worker restart,
+       queue drain without processing). Re-staged into ml:caption_staging.
     """
     if not ctx.get("ml_configured"):
         return
 
     redis = ctx["redis"]
+    manifest: dict = ctx.get("ml_manifest") or {}
+    caption_enabled = "caption" in manifest
 
     async with async_session_factory() as session:
+        # Case 1: fast features never processed
         result = await session.execute(
             select(MediaFile.id).where(
                 MediaFile.is_deleted == False,  # noqa: E712
@@ -912,16 +917,32 @@ async def ml_restage_lost(ctx: dict) -> None:
                 MediaFile.processed_at < text("NOW() - INTERVAL '10 minutes'"),
             ).limit(_RESTAGE_LIMIT)
         )
-        file_ids = [row.id for row in result.all()]
+        fast_ids = [row.id for row in result.all()]
 
-    if not file_ids:
-        return
+        # Case 2: captions lost (only check if caption model is enabled)
+        caption_ids: list = []
+        if caption_enabled:
+            result2 = await session.execute(
+                select(MediaFile.id).where(
+                    MediaFile.is_deleted == False,  # noqa: E712
+                    MediaFile.ai_analyzed_at.isnot(None),
+                    MediaFile.ml_error.is_(None),
+                    text("NOT (ai_versions::jsonb ? 'caption')"),
+                ).limit(_RESTAGE_LIMIT)
+            )
+            caption_ids = [row.id for row in result2.all()]
 
     pipe = redis.pipeline()
-    for fid in file_ids:
+    for fid in fast_ids:
         pipe.rpush(_STAGING_KEY, f"{fid}:")
+    for fid in caption_ids:
+        pipe.rpush(_CAPTION_STAGING_KEY, f"{fid}:")
     await pipe.execute()
-    logger.info("ml_restage_lost: re-staged %d files into %s", len(file_ids), _STAGING_KEY)
+
+    if fast_ids:
+        logger.info("ml_restage_lost: re-staged %d fast-feature files into %s", len(fast_ids), _STAGING_KEY)
+    if caption_ids:
+        logger.info("ml_restage_lost: re-staged %d caption files into %s", len(caption_ids), _CAPTION_STAGING_KEY)
 
 
 # ---------------------------------------------------------------------------
