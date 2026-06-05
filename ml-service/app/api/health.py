@@ -40,11 +40,16 @@ async def health() -> dict:
 
 @router.get("/manifest")
 async def manifest() -> dict:
-    """Return the current model version manifest.
+    """Return the model version manifest for currently-loaded features only.
 
     The backend compares each file's stored ai_versions against this to
-    determine which features are stale and need recomputation.
+    determine which features are stale and need recomputation. Disabled
+    features are excluded so the worker never requests them in a batch.
     """
+    try:
+        loaded = get_models().loaded
+    except RuntimeError:
+        loaded = set()
     return {
         feature: {
             "version": meta["version"],
@@ -52,4 +57,5 @@ async def manifest() -> dict:
             "description": meta.get("description", ""),
         }
         for feature, meta in MANIFEST.items()
+        if feature in loaded
     }
