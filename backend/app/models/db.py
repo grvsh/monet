@@ -491,7 +491,7 @@ class Person(Base):
     name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cover_face_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("face_detections.id", ondelete="SET NULL"),
+        ForeignKey("face_detections.id", ondelete="SET NULL", use_alter=True, name="fk_people_cover_face_id"),
         nullable=True,
     )
     # Mean of all member face embeddings (L2-normalised). Used to match

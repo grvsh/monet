@@ -166,7 +166,7 @@ async def list_folder_files(
 
     sort_col = {
         "taken_at": MediaFile.taken_at,
-        "filename": MediaFile.filename,
+        "filename": func.lower(MediaFile.filename),
         "size_bytes": MediaFile.size_bytes,
     }[sort]
     if order == "desc":

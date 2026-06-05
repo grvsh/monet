@@ -203,7 +203,7 @@ class TestListFolderFiles:
         )
         assert resp.status_code == 200
         names = [f["filename"] for f in resp.json()["items"]]
-        assert names == sorted(names)
+        assert names == sorted(names, key=str.lower)
 
     async def test_deleted_files_excluded(
         self,
